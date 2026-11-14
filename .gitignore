@@ -1,0 +1,57 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Secrets & Environment variables
+.env
+*.local.env
+
+# Cache & Hugging Face / Models
+.cache/
+hf_cache/
+models/
+*.pth
+*.pt
+*.bin
+*.onnx
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Evaluation reports & scratch
+eval/reports/*.json
+qdrant_storage/
+scratch/
