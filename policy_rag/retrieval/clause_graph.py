@@ -1,11 +1,13 @@
-"""Lightweight NetworkX clause topology dependency graph for 1-Hop retrieval expansion."""
+"""Configuration-driven NetworkX clause dependency graph for 1-Hop retrieval expansion."""
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import networkx as nx
+import yaml
 
 from policy_rag.retrieval.filters import matches_metadata_filter
 from policy_rag.retrieval.tokenizer import tokenize
@@ -16,101 +18,15 @@ logger = logging.getLogger(__name__)
 EDGE_INHERITS_GENERAL = "INHERITS_GENERAL"
 EDGE_REQUIRES_DISPUTE_PROOF = "REQUIRES_DISPUTE_PROOF"
 EDGE_LINKS_COMPLEMENT = "LINKS_COMPLEMENT"
-
-_RETURN_GENERAL_CUES = (
-    "退",
-    "换",
-    "无理由",
-    "七天",
-    "7天",
-    "几天",
-    "收到",
-    "签收",
-    "能吗",
-    "可以吗",
-    "完好",
-    "赠品",
-    "不想要",
-    "运费",
+ALLOWED_EDGE_TYPES = frozenset(
+    {
+        EDGE_INHERITS_GENERAL,
+        EDGE_REQUIRES_DISPUTE_PROOF,
+        EDGE_LINKS_COMPLEMENT,
+    }
 )
 
-_DISPUTE_PROOF_CUES = (
-    "假货",
-    "假一赔",
-    "退一赔",
-    "赔偿",
-    "赔我",
-    "检测",
-    "鉴定",
-    "证明",
-    "举证",
-    "怀疑",
-    "责任",
-    "仲裁",
-    "误差",
-    "尺寸",
-    "故障",
-    "争议",
-    "纠纷",
-    "坏了",
-    "寄回",
-    "粗糙",
-)
-
-_FRESH_INSTANT_PAY_CUES = (
-    "赔",
-    "退",
-    "死",
-    "坏",
-    "烂",
-    "腐",
-    "变质",
-    "优鲜赔",
-    "寄回",
-)
-
-_REMOTE_FREIGHT_CUES = (
-    "运费",
-    "怎么算",
-    "收多少",
-    "快递",
-    "偏远",
-    "新疆",
-    "西藏",
-    "包邮",
-)
-
-_PICKUP_SERVICE_CUES = (
-    "取件",
-    "上门",
-    "退货运费",
-    "寄回",
-)
-
-_EXCHANGE_180_CUES = (
-    "只换不修",
-    "180",
-    "换新",
-    "换机",
-    "不想修",
-)
-
-_CATEGORY_DOCS = [
-    "jd_cat_01_mobile_phones",
-    "jd_cat_02_computer_office",
-    "jd_cat_03_appliances_large",
-    "jd_cat_04_appliances_small",
-    "jd_cat_05_fresh_fruits",
-    "jd_cat_06_fresh_seafood",
-    "jd_cat_07_fashion_apparel",
-    "jd_cat_08_beauty_cosmetics",
-    "jd_cat_09_jewelry_watches",
-    "jd_cat_10_maternal_infant",
-    "jd_cat_11_custom_products",
-    "jd_cat_12_home_furniture",
-    "jd_cat_13_virtual_cards",
-    "jd_cat_14_cross_border",
-]
+_DEFAULT_GRAPH_CONFIG = Path(__file__).resolve().parent.parent.parent / "config" / "policy_graph.yaml"
 
 
 def logical_doc_id_of(chunk: RetrievedChunk) -> str:
@@ -121,10 +37,70 @@ def logical_doc_id_of(chunk: RetrievedChunk) -> str:
     return chunk.document_id.rsplit("_", 1)[0]
 
 
-class ClauseDependencyGraph:
-    """Directed clause dependency graph built on NetworkX for deterministic 1-Hop expansion."""
+def load_and_validate_graph_config(config_path: str | Path | None = None) -> list[dict[str, Any]]:
+    """Loads and validates policy rule-graph edge specs from YAML."""
+    path = Path(config_path) if config_path else _DEFAULT_GRAPH_CONFIG
+    if not path.is_absolute() and not path.exists():
+        candidate = _DEFAULT_GRAPH_CONFIG.parent.parent / path
+        if candidate.exists():
+            path = candidate
+    if not path.exists():
+        raise FileNotFoundError(f"Policy graph config not found: {path}")
 
-    def __init__(self, chunks: list[RetrievedChunk]) -> None:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("edges"), list):
+        raise ValueError(f"Invalid policy graph config format in {path}: expected mapping with 'edges' list")
+
+    validated: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw["edges"]):
+        if not isinstance(item, dict):
+            raise ValueError(f"Edge spec #{idx} must be a mapping")
+        has_src = bool(str(item.get("src") or "").strip())
+        has_group = bool(str(item.get("src_group") or "").strip())
+        if has_src == has_group:
+            raise ValueError(f"Edge spec #{idx} must specify exactly one of 'src' or 'src_group'")
+
+        tgt = str(item.get("tgt") or "").strip()
+        if not tgt:
+            raise ValueError(f"Edge spec #{idx} missing 'tgt'")
+
+        edge_type = str(item.get("type") or "").strip()
+        if edge_type not in ALLOWED_EDGE_TYPES:
+            raise ValueError(
+                f"Edge spec #{idx} has unsupported type '{edge_type}'; expected one of {sorted(ALLOWED_EDGE_TYPES)}"
+            )
+
+        priority_raw = item.get("priority", 1)
+        if not isinstance(priority_raw, int) or isinstance(priority_raw, bool) or priority_raw < 1:
+            raise ValueError(f"Edge spec #{idx} priority must be an integer >= 1, got {priority_raw!r}")
+
+        if has_src and str(item["src"]).strip() == tgt:
+            raise ValueError(f"Edge spec #{idx} cannot be a self-loop on '{tgt}'")
+
+        validated.append(
+            {
+                "src": str(item["src"]).strip() if has_src else None,
+                "src_group": str(item["src_group"]).strip() if has_group else None,
+                "tgt": tgt,
+                "type": edge_type,
+                "priority": priority_raw,
+                "note": str(item.get("note") or ""),
+            }
+        )
+
+    return validated
+
+
+class ClauseDependencyGraph:
+    """Directed clause dependency graph built on NetworkX from YAML domain priors."""
+
+    def __init__(
+        self,
+        chunks: list[RetrievedChunk],
+        *,
+        config_path: str | Path | None = None,
+        edge_specs: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.graph: nx.DiGraph = nx.DiGraph()
         self.doc_chunks: dict[str, list[RetrievedChunk]] = {}
 
@@ -141,6 +117,9 @@ class ClauseDependencyGraph:
                 doc_group=str((first.metadata or {}).get("doc_group") or ""),
             )
 
+        self.edge_specs = (
+            edge_specs if edge_specs is not None else load_and_validate_graph_config(config_path)
+        )
         self._build_edges()
         logger.info(
             "ClauseDependencyGraph initialized: %d nodes, %d edges",
@@ -161,86 +140,34 @@ class ClauseDependencyGraph:
         src: str,
         tgt: str,
         edge_type: str,
-        cues: tuple[str, ...],
         priority: int = 1,
     ) -> None:
+        if src == tgt:
+            return
         if src in self.doc_chunks and tgt in self.doc_chunks:
             self.graph.add_edge(
                 src,
                 tgt,
                 edge_type=edge_type,
-                cues=cues,
                 priority=priority,
             )
 
     def _build_edges(self) -> None:
-        # 1. INHERITS_GENERAL: Sub-category & 180-day exchange rules -> 7-day general return policy
-        general_doc = "jd_rule_01_seven_days_general"
-        for cat_doc in _CATEGORY_DOCS:
-            self._add_typed_edge(
-                cat_doc,
-                general_doc,
-                EDGE_INHERITS_GENERAL,
-                _RETURN_GENERAL_CUES,
-                priority=1,
-            )
-        self._add_typed_edge(
-            "jd_srv_02_180_days_exchange",
-            general_doc,
-            EDGE_INHERITS_GENERAL,
-            _RETURN_GENERAL_CUES,
-            priority=1,
-        )
+        group_to_docs: dict[str, list[str]] = {}
+        for doc_id, data in self.graph.nodes(data=True):
+            grp = str(data.get("doc_group") or "").strip()
+            if grp:
+                group_to_docs.setdefault(grp, []).append(doc_id)
 
-        # 2. REQUIRES_DISPUTE_PROOF: Substantive dispute & fake rules -> general dispute arbitration & burden of proof
-        dispute_doc = "jd_rule_02_dispute_resolution"
-        for src in (
-            "jd_cat_01_mobile_phones",
-            "jd_cat_02_computer_office",
-            "jd_cat_08_beauty_cosmetics",
-            "jd_cat_11_custom_products",
-            "jd_rule_03_fake_penalty",
-            "jd_rule_06_direct_refund",
-        ):
-            self._add_typed_edge(
-                src,
-                dispute_doc,
-                EDGE_REQUIRES_DISPUTE_PROOF,
-                _DISPUTE_PROOF_CUES,
-                priority=1,
-            )
-
-        # 3. LINKS_COMPLEMENT: Complementary rules across fresh food, shipping, and appliances
-        for fresh_doc in ("jd_cat_05_fresh_fruits", "jd_cat_06_fresh_seafood"):
-            self._add_typed_edge(
-                fresh_doc,
-                "jd_srv_01_fresh_instant_pay",
-                EDGE_LINKS_COMPLEMENT,
-                _FRESH_INSTANT_PAY_CUES,
-                priority=1,
-            )
-
-        self._add_typed_edge(
-            "jd_ship_01_freight_standard",
-            "jd_ship_02_remote_freight",
-            EDGE_LINKS_COMPLEMENT,
-            _REMOTE_FREIGHT_CUES,
-            priority=1,
-        )
-        self._add_typed_edge(
-            "jd_ship_01_freight_standard",
-            "jd_ship_05_pickup_service",
-            EDGE_LINKS_COMPLEMENT,
-            _PICKUP_SERVICE_CUES,
-            priority=2,
-        )
-        self._add_typed_edge(
-            "jd_cat_03_appliances_large",
-            "jd_srv_02_180_days_exchange",
-            EDGE_LINKS_COMPLEMENT,
-            _EXCHANGE_180_CUES,
-            priority=2,
-        )
+        for spec in self.edge_specs:
+            tgt = spec["tgt"]
+            edge_type = spec["type"]
+            priority = int(spec.get("priority", 1))
+            if spec.get("src"):
+                self._add_typed_edge(spec["src"], tgt, edge_type, priority=priority)
+            elif spec.get("src_group"):
+                for src_doc in sorted(group_to_docs.get(spec["src_group"], [])):
+                    self._add_typed_edge(src_doc, tgt, edge_type, priority=priority)
 
     def _select_best_chunk(
         self,
@@ -262,11 +189,10 @@ class ClauseDependencyGraph:
 
         best_chunk = candidates[0]
         best_score = -1
-        for idx, chunk in enumerate(candidates):
+        for chunk in candidates:
             text = f"{chunk.section or ''} {chunk.content}"
             c_tokens = set(tokenize(text))
             overlap = len(q_tokens & c_tokens)
-            # Prefer earlier foundational chunk on ties
             if overlap > best_score:
                 best_score = overlap
                 best_chunk = chunk
@@ -281,7 +207,7 @@ class ClauseDependencyGraph:
         seed_top_docs: int = 4,
         max_expand: int = 3,
     ) -> list[RetrievedChunk]:
-        """Expands RRF candidates with 1-Hop topologically linked documents gated by query intent."""
+        """Expands RRF candidates with 1-Hop linked documents; Cross-Encoder threshold gates final inclusion."""
         if not primary_chunks or not self.graph.number_of_edges():
             return list(primary_chunks)
 
@@ -302,9 +228,6 @@ class ClauseDependencyGraph:
             for _, tgt_doc, edge_data in self.graph.out_edges(src_doc, data=True):
                 if tgt_doc in existing_docs or tgt_doc in added_targets:
                     continue
-                cues: tuple[str, ...] = edge_data.get("cues", ())
-                if cues and not any(cue in query for cue in cues):
-                    continue
 
                 rep_chunk = self._select_best_chunk(tgt_doc, query, metadata_filter)
                 if rep_chunk is None:
@@ -321,7 +244,6 @@ class ClauseDependencyGraph:
                     )
                 )
 
-        # Sort by edge priority (1 first), preserve discovery order on ties
         expanded_candidates.sort(key=lambda item: item[0])
 
         out = list(primary_chunks)

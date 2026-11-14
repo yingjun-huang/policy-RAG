@@ -23,7 +23,7 @@ class FakeLLMProvider:
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.0,
-        max_tokens: int = 1024,
+        max_tokens: int = 4096,
         response_format: dict[str, str] | None = None,
     ) -> LLMResponse:
         self.calls.append(messages)

@@ -1,0 +1,74 @@
+# 政策条款规则依赖图配置（领域先验边定义）
+# type 取值: INHERITS_GENERAL | REQUIRES_DISPUTE_PROOF | LINKS_COMPLEMENT
+# 可使用 src（具体 doc_id）或 src_group（按 doc_group 泛化展开）
+
+edges:
+  # 1. INHERITS_GENERAL：所有品类细则与 180 天换新服务继承通用七天无理由总则
+  - src_group: category_rules
+    tgt: jd_rule_01_seven_days_general
+    type: INHERITS_GENERAL
+    priority: 1
+    note: 品类退换细则均需结合通用七天无理由起算与完好性总则
+
+  - src: jd_srv_02_180_days_exchange
+    tgt: jd_rule_01_seven_days_general
+    type: INHERITS_GENERAL
+    priority: 1
+    note: 180天只换不修需与通用七天规则衔接界定退换窗口
+
+  # 2. REQUIRES_DISPUTE_PROOF：高争议品类与赔付专项关联交易纠纷举证总则
+  - src: jd_cat_01_mobile_phones
+    tgt: jd_rule_02_dispute_resolution
+    type: REQUIRES_DISPUTE_PROOF
+    priority: 1
+
+  - src: jd_cat_02_computer_office
+    tgt: jd_rule_02_dispute_resolution
+    type: REQUIRES_DISPUTE_PROOF
+    priority: 1
+
+  - src: jd_cat_08_beauty_cosmetics
+    tgt: jd_rule_02_dispute_resolution
+    type: REQUIRES_DISPUTE_PROOF
+    priority: 1
+
+  - src: jd_cat_11_custom_products
+    tgt: jd_rule_02_dispute_resolution
+    type: REQUIRES_DISPUTE_PROOF
+    priority: 1
+
+  - src: jd_rule_03_fake_penalty
+    tgt: jd_rule_02_dispute_resolution
+    type: REQUIRES_DISPUTE_PROOF
+    priority: 1
+
+  - src: jd_rule_06_direct_refund
+    tgt: jd_rule_02_dispute_resolution
+    type: REQUIRES_DISPUTE_PROOF
+    priority: 1
+
+  # 3. LINKS_COMPLEMENT：生鲜/配送/大家电跨文档互补服务规则
+  - src: jd_cat_05_fresh_fruits
+    tgt: jd_srv_01_fresh_instant_pay
+    type: LINKS_COMPLEMENT
+    priority: 1
+
+  - src: jd_cat_06_fresh_seafood
+    tgt: jd_srv_01_fresh_instant_pay
+    type: LINKS_COMPLEMENT
+    priority: 1
+
+  - src: jd_ship_01_freight_standard
+    tgt: jd_ship_02_remote_freight
+    type: LINKS_COMPLEMENT
+    priority: 1
+
+  - src: jd_ship_01_freight_standard
+    tgt: jd_ship_05_pickup_service
+    type: LINKS_COMPLEMENT
+    priority: 2
+
+  - src: jd_cat_03_appliances_large
+    tgt: jd_srv_02_180_days_exchange
+    type: LINKS_COMPLEMENT
+    priority: 2

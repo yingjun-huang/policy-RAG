@@ -477,6 +477,9 @@ async def faithfulness_node(state: AgentState, *, llm: LLMProvider) -> dict[str,
             new_answer = str(correct_data.get("answer") or current_answer)
             updates: dict[str, Any] = {
                 "final_answer": new_answer,
+                "faithfulness_triggered": True,
+                "pre_correction_answer": current_answer,
+                "pre_correction_action": state.get("action"),
                 "faithfulness_ms": round((time.perf_counter() - t0) * 1000, 2),
             }
             if "citation_chunk_ids" in correct_data:
@@ -492,4 +495,7 @@ async def faithfulness_node(state: AgentState, *, llm: LLMProvider) -> dict[str,
     except Exception as e:
         logger.warning(f"Faithfulness check skipped due to error: {e}")
 
-    return {"faithfulness_ms": round((time.perf_counter() - t0) * 1000, 2)}
+    return {
+        "faithfulness_triggered": False,
+        "faithfulness_ms": round((time.perf_counter() - t0) * 1000, 2),
+    }

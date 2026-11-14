@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from eval.judges import AnswerJudge
 from eval.metrics import (
     complete_evidence_at_k,
     hit_at_k,
@@ -24,13 +25,17 @@ from eval.metrics import (
 )
 from policy_rag.config import Settings
 from policy_rag.indexing.pipeline import load_and_chunk_knowledge
+from policy_rag.providers.base import LLMProvider
 from policy_rag.providers.cross_encoder import CrossEncoderRerankProvider
 from policy_rag.providers.embeddings import BgeEmbeddingProvider
-from policy_rag.providers.fake import HashEmbeddingProvider, LexicalRerankProvider
+from policy_rag.providers.fake import FakeLLMProvider, HashEmbeddingProvider, LexicalRerankProvider
+from policy_rag.providers.llm_cache import CachedLLMProvider
+from policy_rag.providers.openai_compat import OpenAICompatibleLLMProvider
 from policy_rag.retrieval.bm25 import BM25Retriever
 from policy_rag.retrieval.clause_graph import ClauseDependencyGraph
 from policy_rag.retrieval.filters import infer_retrieval_filter
 from policy_rag.retrieval.hybrid import HybridRetriever
+from policy_rag.retrieval.legacy import LegacyClauseDependencyGraph, LegacyDocumentReranker
 from policy_rag.retrieval.reranker import DocumentReranker
 from policy_rag.retrieval.vector import (
     InMemoryVectorStore,
@@ -142,7 +147,7 @@ async def setup_pipeline(
     )
 
     vector_retriever = VectorRetriever(vec_store, embedder)
-    clause_graph = ClauseDependencyGraph(chunks)
+    clause_graph = ClauseDependencyGraph(chunks, config_path=settings.graph_config_path)
     hybrid_retriever = HybridRetriever(
         bm25,
         vector_retriever,
@@ -159,7 +164,10 @@ async def setup_pipeline(
         rerank_provider = LexicalRerankProvider()
         reranker_backend = rerank_provider.backend
 
-    document_reranker = DocumentReranker(rerank_provider)
+    document_reranker = DocumentReranker(
+        rerank_provider,
+        graph_ce_threshold=settings.graph_ce_threshold,
+    )
     meta = {
         "knowledge_dir": str(settings.knowledge_dir),
         "chunk_count": len(chunks),
@@ -227,7 +235,16 @@ async def run_ablation_evaluation(
         "4. Hybrid + MetadataFilter",
         "5. Hybrid + MetadataFilter + Rerank",
         "6. Hybrid + ClauseGraph (1-Hop) + MetadataFilter + Rerank",
+        "6b. Hybrid + ClauseGraph (YAML, CE-Gated) + MetadataFilter + Rerank",
     ]
+    legacy_graph = LegacyClauseDependencyGraph(bm25._chunks)
+    legacy_hybrid = HybridRetriever(
+        bm25,
+        vector,
+        rrf_k=hybrid.rrf_k,
+        clause_graph=legacy_graph,  # type: ignore[arg-type]
+    )
+    legacy_reranker = LegacyDocumentReranker(reranker.provider)
     archived_set = set(archived_docs or [])
 
     metrics_by_scheme: dict[str, dict[str, list[float]]] = {
@@ -338,7 +355,28 @@ async def run_ablation_evaluation(
             is_complex=is_complex,
         )
 
-        # Scheme 6: Hybrid + ClauseGraph (1-Hop) + MetadataFilter + Gated Graph Rerank
+        # Scheme 6: Legacy Hybrid + ClauseGraph (1-Hop, cue-triggered) + MetadataFilter + Legacy Rerank
+        t0 = time.perf_counter()
+        legacy_cand = await legacy_hybrid.retrieve(
+            query,
+            top_k=top_k * 2,
+            metadata_filter=metadata_filter,
+            enable_graph_expansion=True,
+        )
+        legacy_reranked = await legacy_reranker.rerank(query, legacy_cand, top_n=max(top_k, 8))
+        legacy_ms = (time.perf_counter() - t0) * 1000
+        _record_scheme_metrics(
+            metrics_by_scheme[schemes[5]],
+            relevant_docs=relevant_docs,
+            stems=_unique_stems(legacy_reranked),
+            latency_ms=legacy_ms,
+            top_k=top_k,
+            archived_set=archived_set,
+            is_version_contrast=is_vc,
+            is_complex=is_complex,
+        )
+
+        # Scheme 6b: Hybrid + ClauseGraph (YAML) + MetadataFilter + CE-Gated Rerank
         t0 = time.perf_counter()
         graph_cand = await hybrid.retrieve(
             query,
@@ -349,7 +387,7 @@ async def run_ablation_evaluation(
         graph_reranked = await reranker.rerank(query, graph_cand, top_n=max(top_k, 8))
         graph_ms = (time.perf_counter() - t0) * 1000
         _record_scheme_metrics(
-            metrics_by_scheme[schemes[5]],
+            metrics_by_scheme[schemes[6]],
             relevant_docs=relevant_docs,
             stems=_unique_stems(graph_reranked),
             latency_ms=graph_ms,
@@ -388,16 +426,62 @@ async def run_ablation_evaluation(
     return summary
 
 
+def _usage_snap(llm: Any) -> dict[str, int]:
+    if hasattr(llm, "usage_snapshot"):
+        snap = llm.usage_snapshot()
+        return {
+            "calls": int(snap.get("calls", 0)),
+            "cache_hits": int(snap.get("cache_hits", 0)),
+            "prompt_tokens": int(snap.get("prompt_tokens", 0)),
+            "completion_tokens": int(snap.get("completion_tokens", 0)),
+            "total_tokens": int(snap.get("total_tokens", 0)),
+        }
+    return {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
 async def run_behavioral_evaluation(
     settings: Settings,
     benchmark_dataset: list[dict[str, Any]],
     guardrail_dataset: list[dict[str, Any]] | None = None,
+    *,
+    live_llm: bool = False,
+    judge_llm: LLMProvider | None = None,
 ) -> dict[str, Any]:
-    """Runs end-to-end service checks (guardrails, isolation, citations, multi-turn history)."""
+    """Runs end-to-end service checks (guardrails, judge, faithfulness, per-route latency & token usage)."""
     container = PolicyContainer(settings=settings)
     await container.init_vector_index()
     service = container.qa_service
-    generation_backend = container.settings.active_llm_model if container.settings.llm_configured else "offline_deterministic_pipeline"
+    is_live = bool(live_llm and container.settings.llm_configured)
+    generation_backend = container.settings.active_llm_model if is_live else "offline_deterministic_pipeline"
+
+    if judge_llm is not None:
+        active_judge_llm: LLMProvider = judge_llm
+        judge_backend = str(getattr(judge_llm, "model", "custom-judge"))
+    elif is_live:
+        raw_judge = OpenAICompatibleLLMProvider(
+            api_key=settings.active_judge_api_key,
+            base_url=settings.active_judge_base_url,
+            model=settings.active_judge_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+        )
+        active_judge_llm = CachedLLMProvider(
+            raw_judge,
+            db_path=settings.llm_cache_db_path,
+            model_name=settings.active_judge_model,
+            budget_tokens=settings.llm_token_budget,
+            enabled=settings.llm_cache_enabled,
+        )
+        judge_backend = settings.active_judge_model
+    else:
+        active_judge_llm = CachedLLMProvider(
+            FakeLLMProvider(default_response='{"verdict": "partial", "rationale": "offline fake judge"}'),
+            model_name="fake-judge",
+            enabled=False,
+        )
+        judge_backend = "fake-judge"
+
+    judge = AnswerJudge(active_judge_llm)
 
     archived_set = {
         _doc_stem(c)
@@ -416,6 +500,50 @@ async def run_behavioral_evaluation(
     false_refusals = 0
     e2e_latencies: list[float] = []
 
+    route_stats: dict[str, dict[str, Any]] = {}
+
+    def _record_route(route_name: str, resp: Any, delta: dict[str, int]) -> None:
+        bucket = route_stats.setdefault(
+            route_name,
+            {
+                "turns": 0,
+                "latencies_ms": [],
+                "retrieval_ms": [],
+                "rerank_ms": [],
+                "llm_ms": [],
+                "faithfulness_ms": [],
+                "llm_calls": 0,
+                "cache_hits": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        )
+        bucket["turns"] += 1
+        bucket["latencies_ms"].append(resp.latency.total_ms)
+        bucket["retrieval_ms"].append(resp.latency.retrieval_ms)
+        bucket["rerank_ms"].append(resp.latency.rerank_ms)
+        bucket["llm_ms"].append(resp.latency.llm_ms)
+        bucket["faithfulness_ms"].append(resp.latency.faithfulness_ms)
+        bucket["llm_calls"] += delta["calls"]
+        bucket["cache_hits"] += delta["cache_hits"]
+        bucket["prompt_tokens"] += delta["prompt_tokens"]
+        bucket["completion_tokens"] += delta["completion_tokens"]
+        bucket["total_tokens"] += delta["total_tokens"]
+
+    judge_verdicts = {"correct": 0, "partial": 0, "incorrect": 0}
+    judge_scores: list[float] = []
+
+    clarify_expected = 0
+    clarify_predicted = 0
+    clarify_tp = 0
+
+    faith_checked = 0
+    faith_triggered = 0
+    faith_pre_scores: list[float] = []
+    faith_post_scores: list[float] = []
+    faith_miscorrections = 0
+
     for item in benchmark_dataset:
         session_id = f"eval_{item['id']}"
         turns = [{"query": item["query"], **item}]
@@ -424,6 +552,7 @@ async def run_behavioral_evaluation(
 
         for turn_idx, turn in enumerate(turns):
             total_turns += 1
+            snap0 = _usage_snap(container.llm)
             resp = await service.answer(
                 ChatRequest(
                     message=turn["query"],
@@ -431,6 +560,12 @@ async def run_behavioral_evaluation(
                     policy_context=item.get("policy_context"),
                 )
             )
+            snap1 = _usage_snap(container.llm)
+            delta = {k: snap1[k] - snap0[k] for k in snap0}
+
+            route_name = resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy)
+            _record_route(route_name, resp, delta)
+
             e2e_latencies.append(resp.latency.total_ms)
             if resp.refused:
                 false_refusals += 1
@@ -455,6 +590,45 @@ async def run_behavioral_evaluation(
                 if gdocs.issubset(set(stems)) or any(d in stems for d in gdocs):
                     followup_gold_hits += 1
 
+            expected_action = str(turn.get("expected_action") or "answer").lower()
+            pred_action = resp.action.value if hasattr(resp.action, "value") else str(resp.action)
+            if expected_action == "clarify":
+                clarify_expected += 1
+            if pred_action == "clarify":
+                clarify_predicted += 1
+            if expected_action == "clarify" and pred_action == "clarify":
+                clarify_tp += 1
+
+            if resp.evidence and not resp.refused and route_name != "direct":
+                faith_checked += 1
+                if resp.faithfulness_triggered:
+                    faith_triggered += 1
+
+            gold_answer = str(turn.get("gold_answer") or "")
+            if gold_answer.strip():
+                post_j = await judge.evaluate(
+                    query=turn["query"],
+                    gold_answer=gold_answer,
+                    predicted_answer=resp.answer,
+                    expected_action=expected_action,
+                    predicted_action=pred_action,
+                )
+                judge_verdicts[post_j.verdict] += 1
+                judge_scores.append(post_j.score)
+
+                if resp.faithfulness_triggered and resp.pre_correction_answer:
+                    pre_j = await judge.evaluate(
+                        query=turn["query"],
+                        gold_answer=gold_answer,
+                        predicted_answer=resp.pre_correction_answer,
+                        expected_action=expected_action,
+                        predicted_action=pred_action,
+                    )
+                    faith_pre_scores.append(pre_j.score)
+                    faith_post_scores.append(post_j.score)
+                    if pre_j.score > post_j.score:
+                        faith_miscorrections += 1
+
     guardrail_summary: dict[str, Any] = {"checked": 0}
     if guardrail_dataset:
         refuse_ok = 0
@@ -462,39 +636,68 @@ async def run_behavioral_evaluation(
         corr_ok = 0
         corr_n = 0
         abstain_empty_or_scoped = 0
+        abstain_action_ok = 0
         abstain_n = 0
         for item in guardrail_dataset:
             cat = item.get("category")
             if cat == "refuse":
                 refuse_n += 1
+                snap0 = _usage_snap(container.llm)
                 resp = await service.answer(ChatRequest(message=item["query"], policy_context=item.get("policy_context")))
+                snap1 = _usage_snap(container.llm)
+                _record_route(
+                    resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy),
+                    resp,
+                    {k: snap1[k] - snap0[k] for k in snap0},
+                )
                 if resp.refused and resp.action == ResponseAction.REFUSE:
                     refuse_ok += 1
             elif cat == "abstain":
                 abstain_n += 1
+                snap0 = _usage_snap(container.llm)
                 resp = await service.answer(ChatRequest(message=item["query"], policy_context=item.get("policy_context")))
-                if resp.action == ResponseAction.ABSTAIN or not settings.llm_configured:
-                    # Offline deterministic FakeLLM always emits static text unless zero chunks were returned;
-                    # verify no fake return_policy_00 chunk and scoped retrieval check.
+                snap1 = _usage_snap(container.llm)
+                _record_route(
+                    resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy),
+                    resp,
+                    {k: snap1[k] - snap0[k] for k in snap0},
+                )
+                if resp.action == ResponseAction.ABSTAIN:
+                    abstain_action_ok += 1
+                if resp.action == ResponseAction.ABSTAIN or not is_live:
                     if "return_policy_00" not in {c.chunk_id for c in resp.evidence}:
                         abstain_empty_or_scoped += 1
             elif cat == "user_correction":
                 corr_n += 1
                 sid = f"eval_corr_{item['id']}"
-                await service.answer(
+                snap0 = _usage_snap(container.llm)
+                resp0 = await service.answer(
                     ChatRequest(
                         message=item["query"],
                         session_id=sid,
                         policy_context=item.get("policy_context"),
                     )
                 )
+                snap1 = _usage_snap(container.llm)
+                _record_route(
+                    resp0.strategy.value if hasattr(resp0.strategy, "value") else str(resp0.strategy),
+                    resp0,
+                    {k: snap1[k] - snap0[k] for k in snap0},
+                )
                 for ft in item.get("follow_up_turns", []):
+                    snap0 = _usage_snap(container.llm)
                     resp1 = await service.answer(
                         ChatRequest(
                             message=ft["query"],
                             session_id=sid,
                             policy_context=item.get("policy_context"),
                         )
+                    )
+                    snap1 = _usage_snap(container.llm)
+                    _record_route(
+                        resp1.strategy.value if hasattr(resp1.strategy, "value") else str(resp1.strategy),
+                        resp1,
+                        {k: snap1[k] - snap0[k] for k in snap0},
                     )
                     stems1 = set(_unique_stems(resp1.evidence))
                     g1 = set(ft.get("gold_doc_ids") or [])
@@ -517,14 +720,47 @@ async def run_behavioral_evaluation(
             "user_correction_passed": corr_ok,
             "user_correction_total": corr_n,
             "abstain_no_fake_fallback_rate": round(abstain_empty_or_scoped / abstain_n * 100, 2) if abstain_n else None,
+            "abstain_action_accuracy": round(abstain_action_ok / abstain_n * 100, 2) if abstain_n else None,
+            "abstain_action_passed": abstain_action_ok,
+            "abstain_total": abstain_n,
             "refusal_abstain_f1": round(f1_ra, 2),
             "false_refusals_on_benchmark": false_refusals,
-            "abstain_llm_judgment_status": "evaluated_live" if settings.llm_configured else "skipped_no_api_key",
+            "abstain_llm_judgment_status": "evaluated_live" if is_live else "offline_fake_llm",
         }
+
+    by_route_summary: dict[str, Any] = {}
+    for r_name, b in sorted(route_stats.items()):
+        t_n = b["turns"]
+        by_route_summary[r_name] = {
+            "turns": t_n,
+            "latency_p50_ms": round(percentile(b["latencies_ms"], 50), 2),
+            "latency_p95_ms": round(percentile(b["latencies_ms"], 95), 2),
+            "avg_retrieval_ms": round(sum(b["retrieval_ms"]) / t_n, 2) if t_n else 0.0,
+            "avg_rerank_ms": round(sum(b["rerank_ms"]) / t_n, 2) if t_n else 0.0,
+            "avg_llm_ms": round(sum(b["llm_ms"]) / t_n, 2) if t_n else 0.0,
+            "avg_faithfulness_ms": round(sum(b["faithfulness_ms"]) / t_n, 2) if t_n else 0.0,
+            "llm_calls": b["llm_calls"],
+            "avg_llm_calls_per_turn": round(b["llm_calls"] / t_n, 2) if t_n else 0.0,
+            "cache_hits": b["cache_hits"],
+            "prompt_tokens": b["prompt_tokens"],
+            "completion_tokens": b["completion_tokens"],
+            "total_tokens": b["total_tokens"],
+        }
+
+    judge_n = len(judge_scores)
+    clarify_precision = (clarify_tp / clarify_predicted * 100) if clarify_predicted else None
+    clarify_recall = (clarify_tp / clarify_expected * 100) if clarify_expected else None
+
+    if is_live:
+        if hasattr(container.llm, "flush_ledger"):
+            container.llm.flush_ledger("eval.runner.pipeline")
+        if hasattr(active_judge_llm, "flush_ledger"):
+            active_judge_llm.flush_ledger("eval.runner.judge")
 
     return {
         "generation_backend": generation_backend,
-        "llm_eval_status": "live_llm" if settings.llm_configured else "skipped_no_api_key",
+        "judge_backend": judge_backend,
+        "llm_eval_status": "live_llm" if is_live else "offline_fake_llm",
         "benchmark_turns_evaluated": total_turns,
         "zero_fake_fallback_rate": round(no_fake_fallback / total_turns * 100, 2) if total_turns else 0.0,
         "citation_integrity_rate": round(citation_valid / citation_checked * 100, 2) if citation_checked else 0.0,
@@ -533,6 +769,41 @@ async def run_behavioral_evaluation(
         "followup_turns": followup_total,
         "e2e_latency_p50_ms": round(percentile(e2e_latencies, 50), 2),
         "e2e_latency_p95_ms": round(percentile(e2e_latencies, 95), 2),
+        "answer_correctness": {
+            "evaluated": judge_n,
+            "correct": judge_verdicts["correct"],
+            "partial": judge_verdicts["partial"],
+            "incorrect": judge_verdicts["incorrect"],
+            "strict_accuracy": round(judge_verdicts["correct"] / judge_n * 100, 2) if judge_n else None,
+            "weighted_accuracy": round(sum(judge_scores) / judge_n * 100, 2) if judge_n else None,
+        },
+        "clarification_metrics": {
+            "expected_total": clarify_expected,
+            "predicted_total": clarify_predicted,
+            "matched_tp": clarify_tp,
+            "precision": round(clarify_precision, 2) if clarify_precision is not None else None,
+            "recall": round(clarify_recall, 2) if clarify_recall is not None else None,
+        },
+        "faithfulness_metrics": {
+            "checked_turns": faith_checked,
+            "triggered_count": faith_triggered,
+            "trigger_rate": round(faith_triggered / faith_checked * 100, 2) if faith_checked else 0.0,
+            "pre_correction_weighted_accuracy": (
+                round(sum(faith_pre_scores) / len(faith_pre_scores) * 100, 2) if faith_pre_scores else None
+            ),
+            "post_correction_weighted_accuracy": (
+                round(sum(faith_post_scores) / len(faith_post_scores) * 100, 2) if faith_post_scores else None
+            ),
+            "miscorrection_count": faith_miscorrections,
+            "miscorrection_rate": (
+                round(faith_miscorrections / len(faith_pre_scores) * 100, 2) if faith_pre_scores else None
+            ),
+        },
+        "by_route": by_route_summary,
+        "llm_usage": {
+            "pipeline": _usage_snap(container.llm),
+            "judge": _usage_snap(active_judge_llm),
+        },
         "guardrail_and_correction": guardrail_summary,
     }
 
@@ -572,11 +843,14 @@ async def main() -> None:
     parser.add_argument("--knowledge-dir", type=str, default=None, help="Override knowledge directory path")
     parser.add_argument("--mode", choices=["retrieval", "e2e", "all"], default="all", help="Evaluation scope")
     parser.add_argument("--live-llm", action="store_true", default=False, help="Use live LLM API for E2E evaluation")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of evaluation items per dataset")
     parser.add_argument("--save-report", action="store_true", default=True, help="Save evaluation report to json")
     args = parser.parse_args()
 
     dataset_path = Path(args.dataset)
     dataset = load_dataset(dataset_path)
+    if args.limit is not None:
+        dataset = dataset[: args.limit]
     logger.info(f"Loaded {len(dataset)} evaluation cases from {dataset_path.name}")
 
     settings = Settings()
@@ -589,7 +863,7 @@ async def main() -> None:
 
     summary: dict[str, dict[str, Any]] = {}
     if args.mode in {"retrieval", "all"}:
-        logger.info("Starting 6-way retrieval & version-isolation ablation evaluation...")
+        logger.info("Starting 7-way retrieval & version-isolation ablation evaluation...")
         summary = await run_ablation_evaluation(
             dataset,
             bm25,
@@ -605,7 +879,10 @@ async def main() -> None:
     if args.mode in {"e2e", "all"}:
         guard_path = Path(args.guardrail_dataset)
         guard_data = load_dataset(guard_path) if guard_path.exists() and dataset_path.name != "rag_eval.jsonl" else None
-        if args.live_llm and settings.llm_configured:
+        if guard_data is not None and args.limit is not None:
+            guard_data = guard_data[: args.limit]
+        is_live = bool(args.live_llm and settings.llm_configured)
+        if is_live:
             e2e_settings = settings.model_copy()
         else:
             e2e_settings = settings.model_copy(
@@ -614,7 +891,12 @@ async def main() -> None:
         # Re-enable offline cached BGE dense embeddings inside PolicyContainer E2E eval
         e2e_settings.local_embedding_force = True
         logger.info("Starting E2E pipeline behavioral & guardrail evaluation...")
-        behavioral = await run_behavioral_evaluation(e2e_settings, dataset, guard_data)
+        behavioral = await run_behavioral_evaluation(
+            e2e_settings,
+            dataset,
+            guard_data,
+            live_llm=is_live,
+        )
         print("E2E Behavioral Summary:", json.dumps(behavioral, ensure_ascii=False, indent=2))
 
     if args.save_report:

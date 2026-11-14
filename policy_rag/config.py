@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 3
+    llm_max_tokens: int = 4096
+    llm_cache_enabled: bool = True
+    llm_cache_db_path: str = ".cache/llm/cache.sqlite"
+    llm_token_budget: int = 20_000_000
+
+    # Optional dedicated Judge LLM
+    judge_api_key: str = ""
+    judge_base_url: str = ""
+    judge_model: str = ""
 
     # Dense Embedding (BGE)
     local_embedding_enabled: bool = True
@@ -63,6 +72,9 @@ class Settings(BaseSettings):
     max_parent_chars: int = 1500
     max_context_chars: int = 4500
     default_as_of: str = "2024-06-01T12:00:00+08:00"
+    graph_config_path: str = "config/policy_graph.yaml"
+    graph_ce_threshold: float | None = 0.5
+    cross_encoder_use_onnx: bool = False
 
     @property
     def is_testing(self) -> bool:
@@ -79,6 +91,18 @@ class Settings(BaseSettings):
     @property
     def active_llm_model(self) -> str:
         return self.llm_model.strip() or self.deepseek_model.strip()
+
+    @property
+    def active_judge_api_key(self) -> str:
+        return self.judge_api_key.strip() or self.active_llm_api_key
+
+    @property
+    def active_judge_base_url(self) -> str:
+        return self.judge_base_url.strip() or self.active_llm_base_url
+
+    @property
+    def active_judge_model(self) -> str:
+        return self.judge_model.strip() or self.active_llm_model
 
     @property
     def llm_configured(self) -> bool:

@@ -55,6 +55,8 @@ class ChatResponse(BaseModel):
     known_slots: dict[str, Any] = Field(default_factory=dict)
     clarification_questions: list[str] = Field(default_factory=list)
     refused: bool = False
+    faithfulness_triggered: bool = False
+    pre_correction_answer: str | None = None
     error: str | None = None
     latency: LatencyBreakdown = Field(default_factory=LatencyBreakdown)
 

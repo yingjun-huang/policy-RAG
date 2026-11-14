@@ -15,6 +15,7 @@ from policy_rag.providers.base import EmbeddingProvider, LLMProvider, RerankProv
 from policy_rag.providers.cross_encoder import CrossEncoderRerankProvider
 from policy_rag.providers.embeddings import BgeEmbeddingProvider, build_embedding_provider
 from policy_rag.providers.fake import FakeLLMProvider, HashEmbeddingProvider, LexicalRerankProvider
+from policy_rag.providers.llm_cache import CachedLLMProvider
 from policy_rag.providers.openai_compat import OpenAICompatibleLLMProvider
 from policy_rag.retrieval.bm25 import BM25Retriever
 from policy_rag.retrieval.clause_graph import ClauseDependencyGraph
@@ -62,16 +63,29 @@ class PolicyContainer:
         if llm is not None:
             self.llm = llm
         elif self.settings.llm_configured and not self.settings.is_testing:
-            self.llm = OpenAICompatibleLLMProvider(
+            raw_llm = OpenAICompatibleLLMProvider(
                 api_key=self.settings.active_llm_api_key,
                 base_url=self.settings.active_llm_base_url,
                 model=self.settings.active_llm_model,
                 timeout_seconds=self.settings.llm_timeout_seconds,
                 max_retries=self.settings.llm_max_retries,
             )
+            self.llm = CachedLLMProvider(
+                raw_llm,
+                db_path=self.settings.llm_cache_db_path,
+                model_name=self.settings.active_llm_model,
+                budget_tokens=self.settings.llm_token_budget,
+                enabled=self.settings.llm_cache_enabled,
+            )
         else:
-            self.llm = FakeLLMProvider(
+            raw_fake = FakeLLMProvider(
                 default_response="商城政策规定：普通商品支持7天无理由退换货，商品需保持完好不影响二次销售。"
+            )
+            self.llm = CachedLLMProvider(
+                raw_fake,
+                db_path=self.settings.llm_cache_db_path,
+                model_name="fake-llm",
+                enabled=False,
             )
 
         self.embedder = embedder or build_embedding_provider(self.settings)
@@ -103,14 +117,20 @@ class PolicyContainer:
             path=self.settings.qdrant_path,
         )
         self.vector_retriever = VectorRetriever(self.vector_store, self.embedder)
-        self.clause_graph = ClauseDependencyGraph(self.chunks)
+        self.clause_graph = ClauseDependencyGraph(
+            self.chunks,
+            config_path=self.settings.graph_config_path,
+        )
         self.hybrid_retriever = HybridRetriever(
             self.bm25,
             self.vector_retriever,
             rrf_k=self.settings.rrf_k,
             clause_graph=self.clause_graph,
         )
-        self.document_reranker = DocumentReranker(self.reranker)
+        self.document_reranker = DocumentReranker(
+            self.reranker,
+            graph_ce_threshold=self.settings.graph_ce_threshold,
+        )
         self._vector_lock = asyncio.Lock()
         self.graph = build_graph(
             retriever=self.hybrid_retriever,
@@ -175,8 +195,9 @@ class PolicyContainer:
         else:
             reranker_backend = getattr(self.reranker, "backend", type(self.reranker).__name__)
 
-        if isinstance(self.llm, OpenAICompatibleLLMProvider):
-            llm_backend = f"openai-compat:{self.llm.model}"
+        inner_llm = getattr(self.llm, "inner", self.llm)
+        if isinstance(inner_llm, OpenAICompatibleLLMProvider):
+            llm_backend = f"openai-compat:{inner_llm.model}"
         else:
             llm_backend = "fake-llm"
             degradation_reasons.append("llm:fake_provider")
@@ -284,6 +305,8 @@ class PolicyQAService:
             known_slots=final_state.get("known_slots", {}),
             clarification_questions=final_state.get("clarification_questions", []),
             refused=refused,
+            faithfulness_triggered=bool(final_state.get("faithfulness_triggered", False)),
+            pre_correction_answer=final_state.get("pre_correction_answer"),
             error=final_state.get("error"),
             latency=latency,
         )
