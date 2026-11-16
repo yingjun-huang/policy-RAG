@@ -81,7 +81,7 @@ class AnswerJudge:
             resp = await self.llm.generate(
                 messages,
                 temperature=0.0,
-                max_tokens=1024,
+                max_tokens=4096,
                 response_format={"type": "json_object"},
             )
             data = json.loads(_clean_json_str(resp.content))

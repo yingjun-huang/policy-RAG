@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -425,14 +426,69 @@ async def refuse_node(state: AgentState) -> dict[str, Any]:
     }
 
 
-async def faithfulness_node(state: AgentState, *, llm: LLMProvider) -> dict[str, Any]:
-    """Audits final answer against evidence and performs self-correction if hallucinated."""
+_HIGH_RISK_FACT_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:元|%|％|折|小时|kg|千克|克|cm|厘米|倍|京豆|张)"
+    r"|(?:20\d{2}年|\d{4}-\d{2}-\d{2}|180天|365天)"
+)
+
+
+def should_run_faithfulness(state: AgentState) -> tuple[bool, str]:
+    """Determines whether Faithfulness LLM audit is warranted under risk-gated policy."""
     if state.get("refused") or state.get("strategy") == RetrievalStrategy.DIRECT:
-        return {}
+        return False, "skipped:non_retrieval"
+
+    if not state.get("evidence"):
+        return False, "skipped:no_evidence"
+
+    action = state.get("action")
+    if action == ResponseAction.CLARIFY:
+        return False, "skipped:clarify_action"
+
+    grade_status = state.get("final_grade_status", GradeStatus.SUFFICIENT)
+    if grade_status != GradeStatus.SUFFICIENT:
+        return True, "risk:insufficient_or_unavailable_grade"
+
+    if action == ResponseAction.ABSTAIN:
+        return True, "risk:abstain_verification"
+
+    answer_text = str(state.get("final_answer") or "")
+    if _HIGH_RISK_FACT_RE.search(answer_text):
+        return True, "risk:numeric_or_temporal_claim"
+
+    return False, "skipped:low_risk_qualitative"
+
+
+async def faithfulness_node(
+    state: AgentState,
+    *,
+    llm: LLMProvider,
+    risk_gate_enabled: bool = True,
+) -> dict[str, Any]:
+    """Audits high-risk final answers against evidence and performs self-correction if hallucinated."""
+    if state.get("refused") or state.get("strategy") == RetrievalStrategy.DIRECT:
+        return {
+            "faithfulness_checked": False,
+            "faithfulness_gate_reason": "skipped:non_retrieval",
+        }
 
     evidence = state.get("evidence", [])
     if not evidence:
-        return {}
+        return {
+            "faithfulness_checked": False,
+            "faithfulness_gate_reason": "skipped:no_evidence",
+        }
+
+    if risk_gate_enabled:
+        should_check, gate_reason = should_run_faithfulness(state)
+        if not should_check:
+            return {
+                "faithfulness_checked": False,
+                "faithfulness_gate_reason": gate_reason,
+                "faithfulness_triggered": False,
+                "faithfulness_ms": 0.0,
+            }
+    else:
+        gate_reason = "full_audit_enabled"
 
     t0 = time.perf_counter()
     query = state.get("user_query", "")
@@ -477,6 +533,8 @@ async def faithfulness_node(state: AgentState, *, llm: LLMProvider) -> dict[str,
             new_answer = str(correct_data.get("answer") or current_answer)
             updates: dict[str, Any] = {
                 "final_answer": new_answer,
+                "faithfulness_checked": True,
+                "faithfulness_gate_reason": gate_reason,
                 "faithfulness_triggered": True,
                 "pre_correction_answer": current_answer,
                 "pre_correction_action": state.get("action"),
@@ -496,6 +554,8 @@ async def faithfulness_node(state: AgentState, *, llm: LLMProvider) -> dict[str,
         logger.warning(f"Faithfulness check skipped due to error: {e}")
 
     return {
+        "faithfulness_checked": True,
+        "faithfulness_gate_reason": gate_reason,
         "faithfulness_triggered": False,
         "faithfulness_ms": round((time.perf_counter() - t0) * 1000, 2),
     }

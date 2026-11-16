@@ -177,6 +177,8 @@ async def setup_pipeline(
         "embedding_backend": embedder.backend,
         "embedding_model": settings.local_embedding_model if embedder.backend == "bge-local" else "hash",
         "reranker_backend": reranker_backend,
+        "cross_encoder_use_onnx": settings.cross_encoder_use_onnx,
+        "faithfulness_risk_gate_enabled": settings.faithfulness_risk_gate_enabled,
         "clause_graph_nodes": clause_graph.node_count,
         "clause_graph_edges": clause_graph.edge_count,
     }
@@ -439,6 +441,17 @@ def _usage_snap(llm: Any) -> dict[str, int]:
     return {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 
+def _expected_route_for_case(category: str | None) -> str | None:
+    """Maps unambiguous dataset categories to gold Adaptive-RAG retrieval routes."""
+    if category in {"single_hop", "table_lookup"}:
+        return "single"
+    if category in {"multi_hop", "version_contrast"}:
+        return "multi"
+    if category == "refuse":
+        return "refuse"
+    return None
+
+
 async def run_behavioral_evaluation(
     settings: Settings,
     benchmark_dataset: list[dict[str, Any]],
@@ -447,6 +460,7 @@ async def run_behavioral_evaluation(
     live_llm: bool = False,
     judge_llm: LLMProvider | None = None,
     concurrency: int = 6,
+    predictions_out: Path | None = None,
 ) -> dict[str, Any]:
     """Runs end-to-end service checks (guardrails, judge, faithfulness, per-route latency & token usage)."""
     container = PolicyContainer(settings=settings)
@@ -540,11 +554,18 @@ async def run_behavioral_evaluation(
     clarify_predicted = 0
     clarify_tp = 0
 
+    route_eval_stats: dict[str, dict[str, int]] = {}
+    prediction_rows: list[dict[str, Any]] = []
+
+    faith_eligible = 0
     faith_checked = 0
     faith_triggered = 0
     faith_pre_scores: list[float] = []
     faith_post_scores: list[float] = []
     faith_miscorrections = 0
+    faith_gate_reasons: dict[str, int] = {}
+    faith_checked_ms: list[float] = []
+    faith_eligible_ms: list[float] = []
 
     sem = asyncio.Semaphore(effective_concurrency)
     total_items = len(benchmark_dataset)
@@ -668,13 +689,46 @@ async def run_behavioral_evaluation(
                 clarify_tp += 1
 
             if resp.evidence and not resp.refused and route_name != "direct":
-                faith_checked += 1
+                faith_eligible += 1
+                faith_eligible_ms.append(float(resp.latency.faithfulness_ms))
+                gate_reason = resp.faithfulness_gate_reason or (
+                    "checked" if resp.faithfulness_checked else "skipped"
+                )
+                faith_gate_reasons[gate_reason] = faith_gate_reasons.get(gate_reason, 0) + 1
+                if resp.faithfulness_checked:
+                    faith_checked += 1
+                    faith_checked_ms.append(float(resp.latency.faithfulness_ms))
                 if resp.faithfulness_triggered:
                     faith_triggered += 1
+
+            if turn_idx == 0:
+                exp_route = _expected_route_for_case(item.get("category"))
+                if exp_route is not None:
+                    rb = route_eval_stats.setdefault(exp_route, {"total": 0, "matched": 0})
+                    rb["total"] += 1
+                    if route_name == exp_route:
+                        rb["matched"] += 1
 
             if post_j is not None:
                 judge_verdicts[post_j.verdict] += 1
                 judge_scores.append(post_j.score)
+                prediction_rows.append(
+                    {
+                        "id": item.get("id"),
+                        "category": item.get("category"),
+                        "turn_idx": turn_idx,
+                        "query": turn["query"],
+                        "gold_answer": str(turn.get("gold_answer") or ""),
+                        "expected_action": expected_action,
+                        "predicted_action": pred_action,
+                        "predicted_answer": resp.answer,
+                        "route": route_name,
+                        "faithfulness_checked": resp.faithfulness_checked,
+                        "faithfulness_triggered": resp.faithfulness_triggered,
+                        "primary_judge_verdict": post_j.verdict,
+                        "primary_judge_score": post_j.score,
+                    }
+                )
                 if pre_j is not None:
                     faith_pre_scores.append(pre_j.score)
                     faith_post_scores.append(post_j.score)
@@ -737,11 +791,12 @@ async def run_behavioral_evaluation(
             if cat == "refuse":
                 refuse_n += 1
                 resp, turn_usage = rec["turns"][0]
-                _record_route(
-                    resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy),
-                    resp,
-                    turn_usage,
-                )
+                r_strat = resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy)
+                _record_route(r_strat, resp, turn_usage)
+                rb = route_eval_stats.setdefault("refuse", {"total": 0, "matched": 0})
+                rb["total"] += 1
+                if r_strat == "refuse":
+                    rb["matched"] += 1
                 if resp.refused and resp.action == ResponseAction.REFUSE:
                     refuse_ok += 1
             elif cat == "abstain":
@@ -829,9 +884,25 @@ async def run_behavioral_evaluation(
         if hasattr(active_judge_llm, "flush_ledger"):
             active_judge_llm.flush_ledger("eval.runner.judge")
 
+    if predictions_out is not None and prediction_rows:
+        predictions_out.parent.mkdir(parents=True, exist_ok=True)
+        predictions_out.write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in prediction_rows) + "\n",
+            encoding="utf-8",
+        )
+
+    route_eval_total = sum(v["total"] for v in route_eval_stats.values())
+    route_eval_matched = sum(v["matched"] for v in route_eval_stats.values())
+    all_route_turns = sum(b["turns"] for b in by_route_summary.values())
+    predicted_dist_pct = {
+        r: round(b["turns"] / all_route_turns * 100, 2)
+        for r, b in by_route_summary.items()
+    } if all_route_turns else {}
+
     return {
         "generation_backend": generation_backend,
         "judge_backend": judge_backend,
+        "reranker_backend": getattr(container.reranker, "backend", type(container.reranker).__name__),
         "llm_eval_status": "live_llm" if is_live else "offline_fake_llm",
         "concurrency": effective_concurrency,
         "benchmark_turns_evaluated": total_turns,
@@ -842,6 +913,19 @@ async def run_behavioral_evaluation(
         "followup_turns": followup_total,
         "e2e_latency_p50_ms": round(percentile(e2e_latencies, 50), 2),
         "e2e_latency_p95_ms": round(percentile(e2e_latencies, 95), 2),
+        "routing_metrics": {
+            "evaluated": route_eval_total,
+            "matched": route_eval_matched,
+            "accuracy": round(route_eval_matched / route_eval_total * 100, 2) if route_eval_total else None,
+            "by_expected_route": {
+                k: {
+                    **v,
+                    "accuracy": round(v["matched"] / v["total"] * 100, 2) if v["total"] else None,
+                }
+                for k, v in sorted(route_eval_stats.items())
+            },
+            "predicted_distribution_pct": predicted_dist_pct,
+        },
         "answer_correctness": {
             "evaluated": judge_n,
             "correct": judge_verdicts["correct"],
@@ -858,7 +942,17 @@ async def run_behavioral_evaluation(
             "recall": round(clarify_recall, 2) if clarify_recall is not None else None,
         },
         "faithfulness_metrics": {
+            "eligible_turns": faith_eligible,
             "checked_turns": faith_checked,
+            "skipped_turns": faith_eligible - faith_checked,
+            "audit_rate": round(faith_checked / faith_eligible * 100, 2) if faith_eligible else 0.0,
+            "gate_reasons": faith_gate_reasons,
+            "avg_eligible_faithfulness_ms": (
+                round(sum(faith_eligible_ms) / len(faith_eligible_ms), 2) if faith_eligible_ms else 0.0
+            ),
+            "avg_checked_faithfulness_ms": (
+                round(sum(faith_checked_ms) / len(faith_checked_ms), 2) if faith_checked_ms else 0.0
+            ),
             "triggered_count": faith_triggered,
             "trigger_rate": round(faith_triggered / faith_checked * 100, 2) if faith_checked else 0.0,
             "pre_correction_weighted_accuracy": (
@@ -968,12 +1062,14 @@ async def main() -> None:
             "Starting E2E pipeline behavioral & guardrail evaluation (concurrency=%d)...",
             args.concurrency,
         )
+        pred_path = REPORTS_DIR / "predictions_latest.jsonl" if (is_live and args.save_report and args.limit is None) else None
         behavioral = await run_behavioral_evaluation(
             e2e_settings,
             dataset,
             guard_data,
             live_llm=is_live,
             concurrency=args.concurrency,
+            predictions_out=pred_path,
         )
         print("E2E Behavioral Summary:", json.dumps(behavioral, ensure_ascii=False, indent=2))
 

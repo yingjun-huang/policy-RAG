@@ -3,7 +3,7 @@
 <p align="center"><strong>面向电商退换货、运费核算与保修咨询场景的检索增强问答系统，重点解决品类特例与通用总则混淆、过期历史规则误引以及跨文档隐式条件漏检问题。</strong></p>
 
 <p align="center">
-  FastAPI × LangGraph × Qdrant × BGE + Cross-Encoder (ONNX) × NetworkX 条款依赖图
+  FastAPI × LangGraph × Qdrant × BGE + Cross-Encoder (PyTorch / ONNX INT8) × NetworkX 规则依赖图
 </p>
 
 <p align="center">
@@ -33,8 +33,8 @@
 | :--- | :--- | :--- | :--- |
 | **切块与表格** | 固定长度滑窗切块，常把前置免责条件与折旧表切碎 | 标题层级父子分块，超长表格按行切分并自动复写表头 | [`chunking.py`](policy_rag/indexing/chunking.py) |
 | **版本与时效** | 现行规则与已归档旧规混在同一向量池里召回 | 提取生效区间与类目写入 Qdrant 标量索引，默认隔离旧版，对比问题自动解锁 | [`vector.py`](policy_rag/retrieval/vector.py) · [`filters.py`](policy_rag/retrieval/filters.py) |
-| **隐式关联条款** | 仅靠词面 + 向量召回，只问“衣服能退吗”易漏上位总则 | 基于 `config/policy_graph.yaml` + NetworkX 做 1-Hop 依赖扩展，再经 Cross-Encoder 门控精排 | [`clause_graph.py`](policy_rag/retrieval/clause_graph.py) · [`reranker.py`](policy_rag/retrieval/reranker.py) |
-| **路由与后置核验** | 所有问题跑同一条链，条件不足也直接强答 | 四路检索路由 + 检索后三态决策（回答 / 追问澄清 / 留白）+ 引用锚点与忠实度自纠错 | [`graph.py`](policy_rag/agents/graph.py) · [`nodes.py`](policy_rag/agents/nodes.py) |
+| **隐式关联条款** | 仅靠词面 + 向量召回，只问“衣服能退吗”易漏上位总则 | 基于 `config/policy_graph.yaml` + NetworkX 做 1-Hop 规则依赖扩展，再经 Cross-Encoder 门控精排 | [`clause_graph.py`](policy_rag/retrieval/clause_graph.py) · [`reranker.py`](policy_rag/retrieval/reranker.py) |
+| **路由与后置核验** | 所有问题跑同一条链，条件不足也直接强答 | 四路复杂度路由 + 检索后三态决策（回答 / 追问澄清 / 留白）+ 引用校验与选择性忠实度核验 | [`graph.py`](policy_rag/agents/graph.py) · [`nodes.py`](policy_rag/agents/nodes.py) |
 
 ---
 
@@ -49,12 +49,12 @@ flowchart LR
     GR -- 通过 --> RT["router · 四路复杂度路由"]
     RT -- DIRECT --> GEN["generate · 回答 / 澄清 / 留白"]
     RT -- REFUSE --> RF
-    RT -- SINGLE --> S1["retrieve_single · 混合检索 + 1-Hop图谱 + 门控精排"]
-    RT -- MULTI --> SR["self_rag · 子查询拆解 & 无增量早停 (≤2跳)"]
+    RT -- SINGLE --> S1["retrieve_single · 混合检索 + 1-Hop规则依赖扩展 + 门控精排"]
+    RT -- MULTI --> SR["self_rag · 子查询拆解 & 无新增证据早停 (≤2跳)"]
     S1 --> GEN
     SR --> GEN
     GEN -- DIRECT --> OUT["回答 + Citations + 阶段耗时"]
-    GEN -- 检索路径 --> FAITH["faithfulness · 锚点校验 & 忠实度自纠错"]
+    GEN -- 检索路径 --> FAITH["faithfulness · 引用校验 & 选择性忠实度核验"]
     FAITH --> OUT
     RF --> OUT
 ```
@@ -106,32 +106,38 @@ curl -s http://127.0.0.1:8000/api/v1/chat \
   -d '{"message":"已激活的手机还能七天无理由退货吗？","session_id":"demo_01"}'
 ```
 
-流式接口为 `POST /api/v1/chat/stream`，通过 SSE 依次推送 `status`、`node_update`、`token` 与完整校验结果 `done`。
+流式接口为 `POST /api/v1/chat/stream`，通过 SSE 先推送 `status` 与节点进度 `node_update`，待生成与后置核验完成后再分段发送最终答案 `token` 与完整结果 `done`。
 
 ---
 
 ## 实测结果
 
-语料库 [`knowledge_jd/`](knowledge_jd) 共 **32 篇**售后政策文档（114 个切片，含 2 篇归档历史版本），测试集包含 **145 条基准题（176 轮对话）** 与 **35 条护栏专项题**。检索采用逻辑文档级去重口径，Embedding 为 `BAAI/bge-small-zh-v1.5`，Reranker 为 `BAAI/bge-reranker-base`。
+语料库 [`knowledge_jd/`](knowledge_jd) 共 **32 篇**售后政策文档（114 个切片，含 2 篇归档历史版本），测试集包含 **145 条基准题（176 轮对话）** 与 **35 条护栏专项题**。默认采用 `BAAI/bge-small-zh-v1.5`、Cross-Encoder（`BAAI/bge-reranker-base`，支持按需切换 ONNX INT8）与 `deepseek-chat`。
 
-### 1. 七路检索与版本隔离消融
+### 1. 七路检索与版本隔离消融（FP32 基线评测口径）
 
 | 检索方案 | P@1 | R@5 | Complete@5 | 复杂问题 Complete@5 | MRR | 版本匹配准确率 |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | 1. BM25（无版本过滤） | 74.48% | 88.28% | 79.31% | 73.83% | 0.8427 | 80.00% |
 | 2. Vector（无版本过滤） | 82.76% | 94.71% | 88.97% | 85.05% | 0.9069 | 76.55% |
 | 3. Hybrid RRF（无版本过滤） | 90.34% | 95.17% | 90.34% | 87.85% | 0.9483 | 77.93% |
-| 4. Hybrid + Qdrant 标量过滤 | 90.34% | 95.17% | 90.34% | 87.85% | 0.9483 | **100.0%** |
-| 5. Hybrid + 标量过滤 + Rerank | **93.10%** | 96.55% | 92.41% | 89.72% | **0.9603** | **100.0%** |
-| 6. Hybrid + ClauseGraph (1-Hop, v1) + Rerank | **93.10%** | 97.70% | 95.17% | 93.46% | 0.9591 | **100.0%** |
-| 6b. Hybrid + ClauseGraph (YAML, CE-Gated) + Rerank | **93.10%** | **98.05%** | **95.86%** | **94.39%** | **0.9603** | **100.0%** |
+| 4. Hybrid + 元数据过滤与生效期校验 | 90.34% | 95.17% | 90.34% | 87.85% | 0.9483 | **100.0%** |
+| 5. Hybrid + 过滤 + Rerank (FP32) | **93.10%** | 96.55% | 92.41% | 89.72% | **0.9603** | **100.0%** |
+| 6. Hybrid + 规则依赖图 (1-Hop, v1) + Rerank | **93.10%** | 97.70% | 95.17% | 93.46% | 0.9591 | **100.0%** |
+| 6b. Hybrid + 规则依赖图 (YAML, CE相关性门控) + Rerank | **93.10%** | **98.05%** | **95.86%** | **94.39%** | **0.9603** | **100.0%** |
 
-### 2. 在线生成、护栏与量化表现（`deepseek-chat` 实测）
+> 注：`3. Hybrid RRF（无版本过滤）` 的旧版隔离率为 `73.33%`（归档规则误召回率 `26.7%`），加入过滤与生效期校验后误召回率降至 `0%`；`Complete@5` 统计逻辑文档级 Top-5 证据覆盖。
 
-- **端到端问答准确率**（176 轮，DeepSeek 三档裁判）：加权准确率 **95.17%**，严格完全正确率 **92.61%**（`163/176`）。
-- **多轮澄清与条件纠偏**：澄清触发精确率 **96.0%**（召回率 **77.42%**），多轮追问与条件纠偏检索命中率 **100.0%**（`31/31` 与 `11/11`）。
-- **护栏拦截与引用真实性**（35 条专项）：越界请求拒答 **100.0%**（`11/11`），无据留白与越界拒答综合 F1 **95.65%**，正常集误拒答 `0` 例，引用锚点校验通过率 **100.0%**。
-- **Cross-Encoder ONNX INT8 动态量化**（CPU 环境 `top_n=8`）：重排阶段 P95 延迟由 PyTorch FP32 的 **702.28ms** 降至 **294.02ms**（全检索链路 P95 **316.74ms**），`Precision@1` 为 `91.72%`、`Recall@5` 为 `94.48%`。
+### 2. 在线问答、护栏与选择性核验（`deepseek-chat`）
+
+- **端到端问答质量**（FP32 基线，176 轮，三档裁判）：加权分 **95.17%**（`correct=1 / partial=0.5 / incorrect=0`），严格完全正确率 **92.61%**（`163/176`）。
+- **多轮澄清与护栏**：反问澄清 P/R 为 **96.0% / 77.42%**；越界办理请求拒答 **100.0%**（`11/11`），正常基准集误拒答 `0` 例，条款级引用锚点存在性校验通过率 **100.0%**。
+- **选择性忠实度核验**：通过 `faithfulness_risk_gate_enabled` 仅对含数值/部分时效表达或证据状态非 `SUFFICIENT` 的轮次触发 Faithfulness 核验，跳过低风险定性与澄清轮次以减少延迟与误纠风险。
+
+### 3. 独立工程对比实验（量化加速与 Embedding 选型）
+
+- **Cross-Encoder ONNX INT8 动态量化**（独立 8 候选 CPU 重排基准，不含图扩展开销）：重排阶段 P95 延迟由 PyTorch FP32 的 **702.28ms** 降至 **294.02ms**，检索 `P@1` 由 `93.10%` 降至 `91.72%`（`-1.38 pp`）；系统支持在 `.env` 中通过 `CROSS_ENCODER_USE_ONNX=true` 启用量化后端。
+- **Embedding 模型对比**（145 题，ONNX INT8 重排）：过滤后纯向量检索阶段 `BAAI/bge-m3`（ONNX）精度更高（`P@1 93.79%`、`Complete@5 95.86%` vs `bge-small-zh-v1.5` 的 `86.21%` / `88.97%`）；但在当前固定的 BM25 + 规则依赖图 + Cross-Encoder 重排全链路上，`bge-small-zh-v1.5` 取得了同等甚至略高的文档级覆盖（`Complete@5 95.17%` vs `94.48%`），同时全链路检索 CPU P50 耗时仅为 **362.59ms**（`bge-m3` ONNX 为 **848.18ms**），适合作为默认轻量双塔配置。
 
 ### 本地复现命令
 
@@ -145,8 +151,13 @@ python -m eval.runner --mode all
 # 在线 DeepSeek 全量评测（带 SQLite 响应缓存与并发控制）
 python -m eval.runner --mode all --live-llm --concurrency 6
 
-# Cross-Encoder 门控阈值与 ONNX INT8 加速对比
+# Cross-Encoder 相关性门控与独立 8 候选 CPU 重排量化基准
 python -m scripts.tune_reranker_and_gate
+
+# Embedding 模型对照 / SSE 延迟基准 / 跨模型裁判一致性检查
+python -m scripts.benchmark_embeddings --offline-only --models BAAI/bge-small-zh-v1.5 BAAI/bge-m3
+python -m scripts.benchmark_e2e_sse
+python -m scripts.cross_model_judge --model deepseek-reasoner --concurrency 8
 ```
 
 ---
@@ -155,7 +166,7 @@ python -m scripts.tune_reranker_and_gate
 
 ```text
 policy-RAG/
-├── config/policy_graph.yaml      # 配置化条款依赖图规则（继承总则 / 争议举证 / 互补服务）
+├── config/policy_graph.yaml      # 配置化规则依赖图规则（继承总则 / 争议举证 / 互补服务）
 ├── docs/assets/                  # 文档与界面演示截图
 ├── eval/                         # 评测集、三档裁判、消融脚本与指标计算
 ├── knowledge_jd/                 # 32 篇电商售后政策语料（含现行与归档历史版本）
@@ -170,8 +181,8 @@ policy-RAG/
 │   ├── web/index.html            # 单页对话与引用查看界面
 │   ├── config.py                 # 配置中心
 │   └── service.py                # 依赖容器、能力探测与会话编排
-├── scripts/                      # 候选边挖掘与重排量化压测脚本
-└── tests/                        # 单元测试与端到端测试（61 passed）
+├── scripts/                      # 候选边挖掘、量化、SSE/Embedding 压测与跨模型裁判脚本
+└── tests/                        # 单元测试与端到端测试（62 passed）
 ```
 
 ---

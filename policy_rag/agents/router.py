@@ -81,6 +81,12 @@ async def route_query(
         data = json.loads(content)
         strategy_str = data.get("strategy", "").lower()
         if strategy_str in {"direct", "single", "multi", "refuse"}:
+            # Deterministic guardrails already catch true injections and write-action demands;
+            # prevent LLM over-refusal on policy questions mentioning refunds/orders.
+            if strategy_str == "refuse" and any(
+                cue in text for cue in ("吗", "怎么", "能否", "能申请", "可以申请", "多少", "规则", "政策")
+            ):
+                return RetrievalStrategy.SINGLE, "路由纠偏：合法政策咨询不得误拒，转单跳检索"
             return RetrievalStrategy(strategy_str), data.get("rationale", "LLM routing")
     except Exception as e:
         logger.warning(f"LLM routing failed or JSON invalid, falling back to rule-based: {e}")

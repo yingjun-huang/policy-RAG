@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     graph_config_path: str = "config/policy_graph.yaml"
     graph_ce_threshold: float | None = 0.5
     cross_encoder_use_onnx: bool = False
+    faithfulness_risk_gate_enabled: bool = True
 
     @property
     def is_testing(self) -> bool:

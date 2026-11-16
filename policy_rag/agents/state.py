@@ -37,6 +37,8 @@ class AgentState(TypedDict, total=False):
     clarification_questions: list[str]
     evidence: list[RetrievedChunk]
     final_answer: str
+    faithfulness_checked: bool
+    faithfulness_gate_reason: str
     faithfulness_triggered: bool
     pre_correction_answer: str | None
     pre_correction_action: ResponseAction | None

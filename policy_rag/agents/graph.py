@@ -57,6 +57,7 @@ def build_graph(
     max_parent_chars: int = 1500,
     max_context_chars: int = 4500,
     default_as_of: str = "2024-06-01T12:00:00+08:00",
+    faithfulness_risk_gate_enabled: bool = True,
 ) -> CompiledStateGraph:
     """Constructs and compiles the full LangGraph state machine."""
     workflow = StateGraph(AgentState)
@@ -97,7 +98,10 @@ def build_graph(
     )
     workflow.add_node("generate", partial(generate_node, llm=llm))
     workflow.add_node("refuse", refuse_node)
-    workflow.add_node("faithfulness", partial(faithfulness_node, llm=llm))
+    workflow.add_node(
+        "faithfulness",
+        partial(faithfulness_node, llm=llm, risk_gate_enabled=faithfulness_risk_gate_enabled),
+    )
 
     # Flow edges
     workflow.add_edge(START, "guardrail")

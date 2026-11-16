@@ -239,3 +239,60 @@ async def test_concurrent_behavioral_eval_matches_serial():
     assert parallel["llm_usage"]["pipeline"] == serial["llm_usage"]["pipeline"]
     assert parallel["by_route"]["single"]["llm_calls"] == serial["by_route"]["single"]["llm_calls"]
     assert parallel["guardrail_and_correction"] == serial["guardrail_and_correction"]
+    assert parallel["routing_metrics"]["accuracy"] == serial["routing_metrics"]["accuracy"]
+    assert "audit_rate" in parallel["faithfulness_metrics"]
+
+
+@pytest.mark.asyncio
+async def test_faithfulness_risk_gate_skips_low_risk_and_runs_high_risk():
+    from policy_rag.agents.nodes import faithfulness_node, should_run_faithfulness
+    from policy_rag.schemas.retrieval import GradeStatus, ResponseAction, RetrievedChunk, RetrievalStrategy
+
+    chunk = RetrievedChunk(
+        document_id="jd_rule_01_x",
+        chunk_id="c1",
+        title="通用退货总则",
+        section="完好性",
+        content="普通商品保持完好支持无理由退货。",
+        metadata={"doc_group": "general_rules"},
+    )
+
+    # 1. Clarify action -> skipped
+    clarify_state = {
+        "user_query": "能退吗？",
+        "strategy": RetrievalStrategy.SINGLE,
+        "action": ResponseAction.CLARIFY,
+        "final_grade_status": GradeStatus.SUFFICIENT,
+        "evidence": [chunk],
+        "final_answer": "请确认是否7天内且未拆封。",
+        "refused": False,
+    }
+    should_run, reason = should_run_faithfulness(clarify_state)
+    assert should_run is False
+    assert reason == "skipped:clarify_action"
+
+    # 2. Qualitative answer without numbers/years -> skipped
+    qual_state = {
+        "user_query": "外箱拆了算不完好吗？",
+        "strategy": RetrievalStrategy.SINGLE,
+        "action": ResponseAction.ANSWER,
+        "final_grade_status": GradeStatus.SUFFICIENT,
+        "evidence": [chunk],
+        "final_answer": "仅拆开运输外箱进行合理查验，不自动构成商品不完好。",
+        "refused": False,
+    }
+    counting_llm = _CountingFakeLLM('{"supported": true}')
+    res_skip = await faithfulness_node(qual_state, llm=counting_llm, risk_gate_enabled=True)
+    assert res_skip["faithfulness_checked"] is False
+    assert res_skip["faithfulness_gate_reason"] == "skipped:low_risk_qualitative"
+    assert counting_llm.invocations == 0
+
+    # 3. Numeric/temporal claim -> checked by LLM
+    num_state = {
+        **qual_state,
+        "final_answer": "普通用户实付满59元免基础运费，请在7天内申请。",
+    }
+    res_check = await faithfulness_node(num_state, llm=counting_llm, risk_gate_enabled=True)
+    assert res_check["faithfulness_checked"] is True
+    assert res_check["faithfulness_gate_reason"] == "risk:numeric_or_temporal_claim"
+    assert counting_llm.invocations == 1

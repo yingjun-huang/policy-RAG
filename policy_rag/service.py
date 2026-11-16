@@ -142,6 +142,7 @@ class PolicyContainer:
             max_parent_chars=self.settings.max_parent_chars,
             max_context_chars=self.settings.max_context_chars,
             default_as_of=self.settings.default_as_of,
+            faithfulness_risk_gate_enabled=self.settings.faithfulness_risk_gate_enabled,
         )
 
         self.qa_service = PolicyQAService(self)
@@ -305,6 +306,8 @@ class PolicyQAService:
             known_slots=final_state.get("known_slots", {}),
             clarification_questions=final_state.get("clarification_questions", []),
             refused=refused,
+            faithfulness_checked=bool(final_state.get("faithfulness_checked", False)),
+            faithfulness_gate_reason=str(final_state.get("faithfulness_gate_reason", "")),
             faithfulness_triggered=bool(final_state.get("faithfulness_triggered", False)),
             pre_correction_answer=final_state.get("pre_correction_answer"),
             error=final_state.get("error"),
