@@ -53,5 +53,6 @@ Thumbs.db
 
 # Evaluation reports & scratch
 eval/reports/*.json
+eval/reports/*.jsonl
 qdrant_storage/
 scratch/

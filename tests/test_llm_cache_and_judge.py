@@ -172,3 +172,70 @@ async def test_faithfulness_node_records_pre_correction_answer():
     assert updates["faithfulness_triggered"] is True
     assert updates["pre_correction_answer"] == "满99元免基础运费。"
     assert updates["final_answer"] == "现行标准为满59元免基础运费。"
+
+
+@pytest.mark.asyncio
+async def test_track_llm_usage_isolated_under_concurrency(tmp_path: Path):
+    import asyncio
+    from policy_rag.providers.llm_cache import track_llm_usage
+
+    class _SlowFakeLLM:
+        model = "slow-fake"
+
+        async def generate(self, messages, *, temperature=0.0, max_tokens=4096, response_format=None):
+            content = messages[-1]["content"]
+            await asyncio.sleep(0.02 if "slow" in content else 0.005)
+            tok = 100 if "slow" in content else 10
+            return LLMResponse(
+                content=f"reply:{content}",
+                usage=TokenUsage(prompt_tokens=tok, completion_tokens=tok, total_tokens=tok * 2),
+                model=self.model,
+            )
+
+    cached = CachedLLMProvider(_SlowFakeLLM(), db_path=tmp_path / "conc_cache.sqlite", enabled=True)
+
+    async def _worker(tag: str) -> dict[str, int]:
+        with track_llm_usage() as usage:
+            await cached.generate([{"role": "user", "content": tag}])
+            return usage
+
+    slow_usage, fast_usage = await asyncio.gather(_worker("slow_q"), _worker("fast_q"))
+    assert slow_usage["calls"] == 1
+    assert slow_usage["total_tokens"] == 200
+    assert fast_usage["calls"] == 1
+    assert fast_usage["total_tokens"] == 20
+
+
+@pytest.mark.asyncio
+async def test_concurrent_behavioral_eval_matches_serial():
+    settings = Settings(app_env="testing", llm_api_key="", deepseek_api_key="")
+    bench = [
+        {
+            "id": f"c_{idx}",
+            "category": "single_hop",
+            "query": q,
+            "gold_doc_ids": ["jd_cat_07_fashion_apparel"],
+            "gold_answer": "支持七天无理由退货。",
+            "expected_action": "answer",
+        }
+        for idx, q in enumerate(
+            [
+                "衣服不想要了能退吗？",
+                "鞋靴试穿后能退吗？",
+                "吊牌剪了还能退吗？",
+                "换货运费谁承担？",
+            ]
+        )
+    ]
+    guard = [
+        {"id": "g_1", "category": "refuse", "query": "帮我取消订单"},
+        {"id": "g_2", "category": "abstain", "query": "白条额度怎么提现"},
+    ]
+    serial = await run_behavioral_evaluation(settings, bench, guard, live_llm=False, concurrency=1)
+    parallel = await run_behavioral_evaluation(settings, bench, guard, live_llm=False, concurrency=4)
+
+    assert parallel["concurrency"] == 4
+    assert parallel["benchmark_turns_evaluated"] == serial["benchmark_turns_evaluated"] == 4
+    assert parallel["llm_usage"]["pipeline"] == serial["llm_usage"]["pipeline"]
+    assert parallel["by_route"]["single"]["llm_calls"] == serial["by_route"]["single"]["llm_calls"]
+    assert parallel["guardrail_and_correction"] == serial["guardrail_and_correction"]

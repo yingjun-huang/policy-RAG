@@ -2,14 +2,39 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
 import hashlib
 import json
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+import sqlite3
+from typing import Any, Iterator
 
 from policy_rag.providers.base import LLMProvider, LLMResponse, TokenUsage
+
+_ACTIVE_USAGE_ACCUMULATOR: ContextVar[dict[str, int] | None] = ContextVar(
+    "policy_rag_active_llm_usage",
+    default=None,
+)
+
+
+@contextmanager
+def track_llm_usage() -> Iterator[dict[str, int]]:
+    """Tracks isolated per-coroutine LLM calls and token usage across concurrent tasks."""
+    bucket: dict[str, int] = {
+        "calls": 0,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
+    token = _ACTIVE_USAGE_ACCUMULATOR.set(bucket)
+    try:
+        yield bucket
+    finally:
+        _ACTIVE_USAGE_ACCUMULATOR.reset(token)
 
 
 class TokenBudgetExceededError(RuntimeError):
@@ -53,6 +78,11 @@ class CachedLLMProvider:
 
     def _init_db(self) -> None:
         with self._connect() as conn:
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+            except sqlite3.DatabaseError:
+                pass
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS llm_cache (
@@ -139,6 +169,10 @@ class CachedLLMProvider:
         response_format: dict[str, str] | None = None,
     ) -> LLMResponse:
         self.calls += 1
+        ctx_bucket = _ACTIVE_USAGE_ACCUMULATOR.get()
+        if ctx_bucket is not None:
+            ctx_bucket["calls"] += 1
+
         cache_key = self.make_cache_key(
             messages,
             temperature=temperature,
@@ -152,6 +186,8 @@ class CachedLLMProvider:
             self.cached_prompt_tokens += cached.usage.prompt_tokens
             self.cached_completion_tokens += cached.usage.completion_tokens
             self.cached_total_tokens += cached.usage.total_tokens
+            if ctx_bucket is not None:
+                ctx_bucket["cache_hits"] += 1
             return cached
 
         if self.budget_tokens is not None and self.total_tokens >= self.budget_tokens:
@@ -167,9 +203,17 @@ class CachedLLMProvider:
             response_format=response_format,
         )
         usage = resp.usage or TokenUsage()
-        self.prompt_tokens += int(usage.prompt_tokens)
-        self.completion_tokens += int(usage.completion_tokens)
-        self.total_tokens += int(usage.total_tokens)
+        p_tok = int(usage.prompt_tokens)
+        c_tok = int(usage.completion_tokens)
+        t_tok = int(usage.total_tokens)
+        self.prompt_tokens += p_tok
+        self.completion_tokens += c_tok
+        self.total_tokens += t_tok
+        if ctx_bucket is not None:
+            ctx_bucket["cache_misses"] += 1
+            ctx_bucket["prompt_tokens"] += p_tok
+            ctx_bucket["completion_tokens"] += c_tok
+            ctx_bucket["total_tokens"] += t_tok
 
         self._put_cached(cache_key, temperature=temperature, response=resp)
         return resp

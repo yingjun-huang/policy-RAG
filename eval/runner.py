@@ -29,7 +29,7 @@ from policy_rag.providers.base import LLMProvider
 from policy_rag.providers.cross_encoder import CrossEncoderRerankProvider
 from policy_rag.providers.embeddings import BgeEmbeddingProvider
 from policy_rag.providers.fake import FakeLLMProvider, HashEmbeddingProvider, LexicalRerankProvider
-from policy_rag.providers.llm_cache import CachedLLMProvider
+from policy_rag.providers.llm_cache import CachedLLMProvider, track_llm_usage
 from policy_rag.providers.openai_compat import OpenAICompatibleLLMProvider
 from policy_rag.retrieval.bm25 import BM25Retriever
 from policy_rag.retrieval.clause_graph import ClauseDependencyGraph
@@ -446,6 +446,7 @@ async def run_behavioral_evaluation(
     *,
     live_llm: bool = False,
     judge_llm: LLMProvider | None = None,
+    concurrency: int = 6,
 ) -> dict[str, Any]:
     """Runs end-to-end service checks (guardrails, judge, faithfulness, per-route latency & token usage)."""
     container = PolicyContainer(settings=settings)
@@ -453,6 +454,7 @@ async def run_behavioral_evaluation(
     service = container.qa_service
     is_live = bool(live_llm and container.settings.llm_configured)
     generation_backend = container.settings.active_llm_model if is_live else "offline_deterministic_pipeline"
+    effective_concurrency = max(1, int(concurrency))
 
     if judge_llm is not None:
         active_judge_llm: LLMProvider = judge_llm
@@ -544,26 +546,94 @@ async def run_behavioral_evaluation(
     faith_post_scores: list[float] = []
     faith_miscorrections = 0
 
-    for item in benchmark_dataset:
+    sem = asyncio.Semaphore(effective_concurrency)
+    total_items = len(benchmark_dataset)
+    completed_items = 0
+
+    async def _run_benchmark_item(item: dict[str, Any]) -> list[dict[str, Any]]:
+        nonlocal completed_items
         session_id = f"eval_{item['id']}"
         turns = [{"query": item["query"], **item}]
         for ft in item.get("follow_up_turns", []):
             turns.append(ft)
 
-        for turn_idx, turn in enumerate(turns):
-            total_turns += 1
-            snap0 = _usage_snap(container.llm)
-            resp = await service.answer(
-                ChatRequest(
-                    message=turn["query"],
-                    session_id=session_id,
-                    policy_context=item.get("policy_context"),
-                )
-            )
-            snap1 = _usage_snap(container.llm)
-            delta = {k: snap1[k] - snap0[k] for k in snap0}
+        item_records: list[dict[str, Any]] = []
+        async with sem:
+            for turn_idx, turn in enumerate(turns):
+                with track_llm_usage() as turn_usage:
+                    resp = await service.answer(
+                        ChatRequest(
+                            message=turn["query"],
+                            session_id=session_id,
+                            policy_context=item.get("policy_context"),
+                        )
+                    )
 
-            route_name = resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy)
+                route_name = resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy)
+                expected_action = str(turn.get("expected_action") or "answer").lower()
+                pred_action = resp.action.value if hasattr(resp.action, "value") else str(resp.action)
+
+                post_j = None
+                pre_j = None
+                gold_answer = str(turn.get("gold_answer") or "")
+                if gold_answer.strip():
+                    post_j = await judge.evaluate(
+                        query=turn["query"],
+                        gold_answer=gold_answer,
+                        predicted_answer=resp.answer,
+                        expected_action=expected_action,
+                        predicted_action=pred_action,
+                    )
+                    if resp.faithfulness_triggered and resp.pre_correction_answer:
+                        pre_j = await judge.evaluate(
+                            query=turn["query"],
+                            gold_answer=gold_answer,
+                            predicted_answer=resp.pre_correction_answer,
+                            expected_action=expected_action,
+                            predicted_action=pred_action,
+                        )
+
+                item_records.append(
+                    {
+                        "item": item,
+                        "turn": turn,
+                        "turn_idx": turn_idx,
+                        "resp": resp,
+                        "usage": turn_usage,
+                        "route_name": route_name,
+                        "expected_action": expected_action,
+                        "pred_action": pred_action,
+                        "post_j": post_j,
+                        "pre_j": pre_j,
+                    }
+                )
+
+        completed_items += 1
+        if completed_items % 20 == 0 or completed_items == total_items:
+            logger.info(
+                "Behavioral benchmark progress: %d/%d items (concurrency=%d)",
+                completed_items,
+                total_items,
+                effective_concurrency,
+            )
+        return item_records
+
+    all_item_records = await asyncio.gather(*[_run_benchmark_item(item) for item in benchmark_dataset])
+
+    for item_records in all_item_records:
+        for rec in item_records:
+            total_turns += 1
+            item = rec["item"]
+            turn = rec["turn"]
+            turn_idx = rec["turn_idx"]
+            resp = rec["resp"]
+            delta = rec["usage"]
+            route_name = rec["route_name"]
+            expected_action = rec["expected_action"]
+            pred_action = rec["pred_action"]
+            post_j = rec["post_j"]
+            pre_j = rec["pre_j"]
+
             _record_route(route_name, resp, delta)
 
             e2e_latencies.append(resp.latency.total_ms)
@@ -590,8 +660,6 @@ async def run_behavioral_evaluation(
                 if gdocs.issubset(set(stems)) or any(d in stems for d in gdocs):
                     followup_gold_hits += 1
 
-            expected_action = str(turn.get("expected_action") or "answer").lower()
-            pred_action = resp.action.value if hasattr(resp.action, "value") else str(resp.action)
             if expected_action == "clarify":
                 clarify_expected += 1
             if pred_action == "clarify":
@@ -604,26 +672,10 @@ async def run_behavioral_evaluation(
                 if resp.faithfulness_triggered:
                     faith_triggered += 1
 
-            gold_answer = str(turn.get("gold_answer") or "")
-            if gold_answer.strip():
-                post_j = await judge.evaluate(
-                    query=turn["query"],
-                    gold_answer=gold_answer,
-                    predicted_answer=resp.answer,
-                    expected_action=expected_action,
-                    predicted_action=pred_action,
-                )
+            if post_j is not None:
                 judge_verdicts[post_j.verdict] += 1
                 judge_scores.append(post_j.score)
-
-                if resp.faithfulness_triggered and resp.pre_correction_answer:
-                    pre_j = await judge.evaluate(
-                        query=turn["query"],
-                        gold_answer=gold_answer,
-                        predicted_answer=resp.pre_correction_answer,
-                        expected_action=expected_action,
-                        predicted_action=pred_action,
-                    )
+                if pre_j is not None:
                     faith_pre_scores.append(pre_j.score)
                     faith_post_scores.append(post_j.score)
                     if pre_j.score > post_j.score:
@@ -631,6 +683,48 @@ async def run_behavioral_evaluation(
 
     guardrail_summary: dict[str, Any] = {"checked": 0}
     if guardrail_dataset:
+        async def _run_guardrail_item(item: dict[str, Any]) -> dict[str, Any]:
+            cat = item.get("category")
+            async with sem:
+                if cat == "refuse":
+                    with track_llm_usage() as turn_usage:
+                        resp = await service.answer(
+                            ChatRequest(message=item["query"], policy_context=item.get("policy_context"))
+                        )
+                    return {"cat": cat, "turns": [(resp, turn_usage)], "item": item}
+                if cat == "abstain":
+                    with track_llm_usage() as turn_usage:
+                        resp = await service.answer(
+                            ChatRequest(message=item["query"], policy_context=item.get("policy_context"))
+                        )
+                    return {"cat": cat, "turns": [(resp, turn_usage)], "item": item}
+                if cat == "user_correction":
+                    sid = f"eval_corr_{item['id']}"
+                    recorded_turns: list[tuple[Any, dict[str, int], dict[str, Any] | None]] = []
+                    with track_llm_usage() as turn_usage0:
+                        resp0 = await service.answer(
+                            ChatRequest(
+                                message=item["query"],
+                                session_id=sid,
+                                policy_context=item.get("policy_context"),
+                            )
+                        )
+                    recorded_turns.append((resp0, turn_usage0, None))
+                    for ft in item.get("follow_up_turns", []):
+                        with track_llm_usage() as turn_usage_ft:
+                            resp1 = await service.answer(
+                                ChatRequest(
+                                    message=ft["query"],
+                                    session_id=sid,
+                                    policy_context=item.get("policy_context"),
+                                )
+                            )
+                        recorded_turns.append((resp1, turn_usage_ft, ft))
+                    return {"cat": cat, "turns": recorded_turns, "item": item}
+                return {"cat": cat, "turns": [], "item": item}
+
+        guard_records = await asyncio.gather(*[_run_guardrail_item(item) for item in guardrail_dataset])
+
         refuse_ok = 0
         refuse_n = 0
         corr_ok = 0
@@ -638,29 +732,25 @@ async def run_behavioral_evaluation(
         abstain_empty_or_scoped = 0
         abstain_action_ok = 0
         abstain_n = 0
-        for item in guardrail_dataset:
-            cat = item.get("category")
+        for rec in guard_records:
+            cat = rec["cat"]
             if cat == "refuse":
                 refuse_n += 1
-                snap0 = _usage_snap(container.llm)
-                resp = await service.answer(ChatRequest(message=item["query"], policy_context=item.get("policy_context")))
-                snap1 = _usage_snap(container.llm)
+                resp, turn_usage = rec["turns"][0]
                 _record_route(
                     resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy),
                     resp,
-                    {k: snap1[k] - snap0[k] for k in snap0},
+                    turn_usage,
                 )
                 if resp.refused and resp.action == ResponseAction.REFUSE:
                     refuse_ok += 1
             elif cat == "abstain":
                 abstain_n += 1
-                snap0 = _usage_snap(container.llm)
-                resp = await service.answer(ChatRequest(message=item["query"], policy_context=item.get("policy_context")))
-                snap1 = _usage_snap(container.llm)
+                resp, turn_usage = rec["turns"][0]
                 _record_route(
                     resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy),
                     resp,
-                    {k: snap1[k] - snap0[k] for k in snap0},
+                    turn_usage,
                 )
                 if resp.action == ResponseAction.ABSTAIN:
                     abstain_action_ok += 1
@@ -669,38 +759,20 @@ async def run_behavioral_evaluation(
                         abstain_empty_or_scoped += 1
             elif cat == "user_correction":
                 corr_n += 1
-                sid = f"eval_corr_{item['id']}"
-                snap0 = _usage_snap(container.llm)
-                resp0 = await service.answer(
-                    ChatRequest(
-                        message=item["query"],
-                        session_id=sid,
-                        policy_context=item.get("policy_context"),
-                    )
-                )
-                snap1 = _usage_snap(container.llm)
+                resp0, turn_usage0, _ = rec["turns"][0]
                 _record_route(
                     resp0.strategy.value if hasattr(resp0.strategy, "value") else str(resp0.strategy),
                     resp0,
-                    {k: snap1[k] - snap0[k] for k in snap0},
+                    turn_usage0,
                 )
-                for ft in item.get("follow_up_turns", []):
-                    snap0 = _usage_snap(container.llm)
-                    resp1 = await service.answer(
-                        ChatRequest(
-                            message=ft["query"],
-                            session_id=sid,
-                            policy_context=item.get("policy_context"),
-                        )
-                    )
-                    snap1 = _usage_snap(container.llm)
+                for resp1, turn_usage_ft, ft in rec["turns"][1:]:
                     _record_route(
                         resp1.strategy.value if hasattr(resp1.strategy, "value") else str(resp1.strategy),
                         resp1,
-                        {k: snap1[k] - snap0[k] for k in snap0},
+                        turn_usage_ft,
                     )
                     stems1 = set(_unique_stems(resp1.evidence))
-                    g1 = set(ft.get("gold_doc_ids") or [])
+                    g1 = set((ft or {}).get("gold_doc_ids") or [])
                     if g1.issubset(stems1):
                         corr_ok += 1
 
@@ -761,6 +833,7 @@ async def run_behavioral_evaluation(
         "generation_backend": generation_backend,
         "judge_backend": judge_backend,
         "llm_eval_status": "live_llm" if is_live else "offline_fake_llm",
+        "concurrency": effective_concurrency,
         "benchmark_turns_evaluated": total_turns,
         "zero_fake_fallback_rate": round(no_fake_fallback / total_turns * 100, 2) if total_turns else 0.0,
         "citation_integrity_rate": round(citation_valid / citation_checked * 100, 2) if citation_checked else 0.0,
@@ -843,6 +916,7 @@ async def main() -> None:
     parser.add_argument("--knowledge-dir", type=str, default=None, help="Override knowledge directory path")
     parser.add_argument("--mode", choices=["retrieval", "e2e", "all"], default="all", help="Evaluation scope")
     parser.add_argument("--live-llm", action="store_true", default=False, help="Use live LLM API for E2E evaluation")
+    parser.add_argument("--concurrency", type=int, default=6, help="Max concurrent evaluation items during E2E run")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of evaluation items per dataset")
     parser.add_argument("--save-report", action="store_true", default=True, help="Save evaluation report to json")
     args = parser.parse_args()
@@ -890,12 +964,16 @@ async def main() -> None:
             )
         # Re-enable offline cached BGE dense embeddings inside PolicyContainer E2E eval
         e2e_settings.local_embedding_force = True
-        logger.info("Starting E2E pipeline behavioral & guardrail evaluation...")
+        logger.info(
+            "Starting E2E pipeline behavioral & guardrail evaluation (concurrency=%d)...",
+            args.concurrency,
+        )
         behavioral = await run_behavioral_evaluation(
             e2e_settings,
             dataset,
             guard_data,
             live_llm=is_live,
+            concurrency=args.concurrency,
         )
         print("E2E Behavioral Summary:", json.dumps(behavioral, ensure_ascii=False, indent=2))
 
