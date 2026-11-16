@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-pytest%2061%20passed-22c55e"></a>
+  <a href="https://github.com/yingjun-huang/policy-RAG/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yingjun-huang/policy-RAG/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB">
   <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688">
@@ -18,10 +18,10 @@
 ## 界面快照
 
 <p align="center">
-  <img src="docs/assets/workbench-demo.png" alt="Policy-RAG Web 对话界面：生鲜坏果赔付咨询，回答附带优鲜赔、水果品类与有效期规则三条可展开来源引用" width="900">
+  <img src="docs/assets/workbench-demo.png" alt="Policy-RAG Web 对话界面：手机退货多轮追问澄清与跨条款引用展示" width="900">
 </p>
 
-<p align="center"><sub>Web 对话台：生鲜水果坏果赔付咨询，回答关联 <code>jd_srv_01_fresh_instant_pay</code>、<code>jd_cat_05_fresh_fruits</code> 与 <code>jd_rule_06_direct_refund</code> 三条条款来源，点击胶囊可核对原文</sub></p>
+<p align="center"><sub>Web 对话台：面对“手机收到好几天了，现在还能退吗？”等前提缺失问题，系统先关联手机激活细则与通用退货总则主动反问澄清，待用户补充条件后给出明确结论并附可核对原文的条款来源</sub></p>
 
 ---
 
@@ -70,8 +70,8 @@ flowchart LR
 需要 **Python 3.11+**。基础依赖与本地向量/精排推理包分开声明：
 
 ```bash
-git clone <your-repo-url>
-cd policy-rag
+git clone https://github.com/yingjun-huang/policy-RAG.git
+cd policy-RAG
 pip install -e ".[ml,dev]"
 cp .env.example .env
 ```
@@ -123,7 +123,7 @@ curl -s http://127.0.0.1:8000/api/v1/chat \
 | 3. Hybrid RRF（无版本过滤） | 90.34% | 95.17% | 90.34% | 87.85% | 0.9483 | 77.93% |
 | 4. Hybrid + Qdrant 标量过滤 | 90.34% | 95.17% | 90.34% | 87.85% | 0.9483 | **100.0%** |
 | 5. Hybrid + 标量过滤 + Rerank | **93.10%** | 96.55% | 92.41% | 89.72% | **0.9603** | **100.0%** |
-| 6. Hybrid + ClauseGraph (Hardcoded) + Rerank | **93.10%** | 97.70% | 95.17% | 93.46% | 0.9591 | **100.0%** |
+| 6. Hybrid + ClauseGraph (1-Hop, v1) + Rerank | **93.10%** | 97.70% | 95.17% | 93.46% | 0.9591 | **100.0%** |
 | 6b. Hybrid + ClauseGraph (YAML, CE-Gated) + Rerank | **93.10%** | **98.05%** | **95.86%** | **94.39%** | **0.9603** | **100.0%** |
 
 ### 2. 在线生成、护栏与量化表现（`deepseek-chat` 实测）
@@ -154,7 +154,7 @@ python -m scripts.tune_reranker_and_gate
 ## 目录结构
 
 ```text
-policy-rag/
+policy-RAG/
 ├── config/policy_graph.yaml      # 配置化条款依赖图规则（继承总则 / 争议举证 / 互补服务）
 ├── docs/assets/                  # 文档与界面演示截图
 ├── eval/                         # 评测集、三档裁判、消融脚本与指标计算
