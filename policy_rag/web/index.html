@@ -62,8 +62,8 @@
 
     .app-shell { display: flex; height: 100dvh; overflow: hidden; background: var(--canvas); }
     .sidebar {
-      width: 264px;
-      flex: 0 0 264px;
+      width: 248px;
+      flex: 0 0 248px;
       height: 100%;
       display: flex;
       flex-direction: column;
@@ -309,15 +309,15 @@
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
     }
-    .message-list { max-width: 780px; min-height: 100%; margin: 0 auto; padding: 24px 24px 48px; }
-    .message { display: flex; margin-bottom: 28px; }
-    .user-message { justify-content: flex-end; margin-bottom: 28px; }
+    .message-list { max-width: 760px; min-height: 100%; margin: 0 auto; padding: 28px 24px 44px; }
+    .message { display: flex; margin-bottom: 26px; }
+    .user-message { justify-content: flex-end; margin-bottom: 26px; }
     .user-bubble {
-      max-width: min(76%, 600px);
-      padding: 10px 16px;
-      border-radius: 20px;
+      max-width: min(78%, 620px);
+      padding: 11px 18px;
+      border-radius: 22px;
       background: var(--bubble);
-      font-size: 14px;
+      font-size: 15.5px;
       line-height: 1.7;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -326,23 +326,23 @@
     .assistant-avatar { padding-top: 2px; flex: 0 0 auto; }
     .assistant-body { min-width: 0; flex: 1; padding-top: 1px; }
 
-    .markdown { font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+    .markdown { font-size: 15.5px; line-height: 1.78; overflow-wrap: anywhere; }
     .markdown > :first-child { margin-top: 0; }
     .markdown > :last-child { margin-bottom: 0; }
-    .markdown p { margin: 0 0 12px; }
-    .markdown h1, .markdown h2, .markdown h3 { line-height: 1.35; margin: 18px 0 8px; }
+    .markdown p { margin: 0 0 11px; }
+    .markdown h1, .markdown h2, .markdown h3 { line-height: 1.35; margin: 16px 0 8px; }
     .markdown h1 { font-size: 19px; }
-    .markdown h2 { font-size: 16px; }
-    .markdown h3 { font-size: 14px; }
-    .markdown ul, .markdown ol { padding-left: 22px; margin: 0 0 12px; }
-    .markdown li { margin: 3px 0; }
+    .markdown h2 { font-size: 17px; }
+    .markdown h3 { font-size: 15.5px; }
+    .markdown ul, .markdown ol { padding-left: 22px; margin: 0 0 11px; }
+    .markdown li { margin: 4px 0; }
     .markdown code {
-      padding: 2px 5px;
+      padding: 2px 6px;
       border-radius: 5px;
       background: var(--bubble);
-      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    .markdown table { border-collapse: collapse; display: block; overflow-x: auto; margin: 12px 0; font-size: 13px; }
+    .markdown table { border-collapse: collapse; display: block; overflow-x: auto; margin: 12px 0; font-size: 14px; }
     .markdown th, .markdown td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
     .markdown th { background: var(--sidebar); }
     .message-error { color: #c95656; }
@@ -370,18 +370,18 @@
       gap: 6px;
       margin: 10px 0 8px;
     }
-    .citation-heading { margin-right: 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .citation-heading { margin-right: 4px; color: var(--muted); font-size: 13px; font-weight: 600; }
     .citation {
-      max-width: 260px;
+      max-width: 300px;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 10px 4px 5px;
+      padding: 5px 11px 5px 6px;
       border: 1px solid var(--border);
       border-radius: 999px;
       background: var(--surface);
       color: var(--text);
-      font-size: 12px;
+      font-size: 13px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -390,8 +390,8 @@
     .citation:hover, .citation.active { border-color: var(--accent); background: var(--accent-soft); }
     .citation > span:last-child { overflow: hidden; text-overflow: ellipsis; }
     .citation-index {
-      width: 18px;
-      height: 18px;
+      width: 19px;
+      height: 19px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -399,17 +399,17 @@
       color: var(--accent);
       background: var(--accent-soft);
       font-weight: 650;
-      font-size: 11px;
+      font-size: 12px;
       flex: 0 0 auto;
     }
     .citation-drawer {
-      margin: 6px 0 10px;
-      padding: 12px 14px;
+      margin: 8px 0 10px;
+      padding: 13px 15px;
       border-radius: 12px;
       border: 1px solid var(--border);
       background: var(--sidebar);
-      font-size: 12px;
-      line-height: 1.65;
+      font-size: 13.5px;
+      line-height: 1.7;
       color: var(--text);
     }
     .citation-drawer-head {
@@ -418,7 +418,7 @@
       align-items: center;
       margin-bottom: 6px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 12px;
     }
     .citation-drawer-body {
       white-space: pre-wrap;
@@ -460,7 +460,7 @@
       border: 0;
       outline: none;
       color: var(--text);
-      font-size: 14px;
+      font-size: 15px;
       line-height: 1.55;
       overflow-y: auto;
     }
@@ -607,16 +607,16 @@
           <h1>有什么售后政策可以帮您？</h1>
           <p>支持退换货资格核对、偏远运费计价、历史版本对比与条款溯源</p>
           <div class="suggestions">
-            <button type="button" data-q="已激活的手机还能七天无理由退货吗？如果卖家拒绝怎么处理？">
+            <button type="button" data-q="定制窗帘过了7天，但收到发现尺寸和约定不符，还能退吗？">
               <span class="s-body">
-                <strong>手机激活与纠纷举证</strong>
-                <small>已激活的手机还能七天无理由退货吗？如果卖家拒绝怎么处理？</small>
+                <strong>定制商品超期与质量争议</strong>
+                <small>定制窗帘过了7天，收到发现尺寸和约定不符，还能退吗？</small>
               </span>
             </button>
-            <button type="button" data-q="买的京东生鲜车厘子收到后部分腐烂坏果，需要退回商品吗？怎么赔？">
+            <button type="button" data-q="买的生鲜车厘子收到后部分腐烂坏果，需要寄回吗？怎么赔？">
               <span class="s-body">
-                <strong>生鲜腐损与优鲜赔</strong>
-                <small>买的京东生鲜车厘子收到后部分腐烂坏果，需要退回商品吗？</small>
+                <strong>生鲜坏果与优鲜赔</strong>
+                <small>买的生鲜车厘子收到后部分腐烂坏果，需要寄回吗？</small>
               </span>
             </button>
             <button type="button" data-q="2023年之前的自营免运费门槛和现在相比有什么变化？">
@@ -946,7 +946,7 @@
               btn.type = "button";
               btn.className = "citation";
               btn.title = `${cite.title}${cite.section ? " · " + cite.section : ""}`;
-              const label = cite.section ? `${cite.doc_slug} · ${cite.section}` : cite.title;
+              const label = cite.section ? `${cite.title} · ${cite.section}` : cite.title;
               btn.innerHTML = `<span class="citation-index">${idx + 1}</span><span>${escapeHtml(label)}</span>`;
               btn.onclick = () => {
                 const already = btn.classList.contains("active");
