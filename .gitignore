@@ -30,15 +30,8 @@ htmlcov/
 .DS_Store
 Thumbs.db
 scratch/
-# New experiments ignored; reviewed evidence explicitly included
-eval/reports/*
-!eval/reports/RESULTS.md
-!eval/reports/metrics.json
-!eval/reports/final_20261119/
-eval/reports/final_20261119/*
-!eval/reports/final_20261119/*.md
-!eval/reports/final_20261119/*.json
-!eval/reports/final_20261119/cross_deepseek_reasoner_20261119/
-eval/reports/final_20261119/cross_deepseek_reasoner_20261119/*
-!eval/reports/final_20261119/cross_deepseek_reasoner_20261119/*.md
-!eval/reports/final_20261119/cross_deepseek_reasoner_20261119/*.json
+# Reports & internal notes (keep repo clean; summary metrics live in README.md)
+eval/reports/
+docs/EVALUATION.md
+docs/PROJECT_REVIEW.md
+docs/RESUME.md
