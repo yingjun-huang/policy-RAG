@@ -31,12 +31,14 @@ class AgentState(TypedDict, total=False):
     hop_traces: list[HopTrace]
     final_grade_status: GradeStatus
     exit_reason: ExitReason
+    missing_type: str
     missing_aspect: str
     missing_slots: list[str]
     known_slots: dict[str, Any]
     clarification_questions: list[str]
     evidence: list[RetrievedChunk]
     final_answer: str
+    calculation_trace: list[dict[str, Any]]
     faithfulness_checked: bool
     faithfulness_gate_reason: str
     faithfulness_triggered: bool

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Literal
+from pydantic import BaseModel
 
 from policy_rag.agents.prompts import ROUTER_SYSTEM, ROUTER_USER
 from policy_rag.guardrails.boundary import check_scope_and_actions
@@ -30,6 +32,12 @@ _MULTI_HOP_CUES = (
     "新版",
     "新旧",
 )
+
+
+class _RoutePayload(BaseModel):
+    strategy: Literal["direct", "single", "multi", "refuse"]
+    rationale: str = "LLM routing"
+
 
 
 async def route_query(
@@ -71,23 +79,18 @@ async def route_query(
             {"role": "system", "content": ROUTER_SYSTEM},
             {"role": "user", "content": ROUTER_USER.format(query=prompt_query)},
         ]
-        resp = await llm.generate(messages, temperature=0.0)
+        resp = await llm.generate(messages, temperature=0.0, max_tokens=256, response_format={"type": "json_object"})
         # Clean potential markdown fence
         content = resp.content.strip()
         if content.startswith("```"):
             content = content.strip("`")
             if content.startswith("json"):
                 content = content[4:].strip()
-        data = json.loads(content)
-        strategy_str = data.get("strategy", "").lower()
-        if strategy_str in {"direct", "single", "multi", "refuse"}:
-            # Deterministic guardrails already catch true injections and write-action demands;
-            # prevent LLM over-refusal on policy questions mentioning refunds/orders.
-            if strategy_str == "refuse" and any(
-                cue in text for cue in ("吗", "怎么", "能否", "能申请", "可以申请", "多少", "规则", "政策")
-            ):
-                return RetrievalStrategy.SINGLE, "路由纠偏：合法政策咨询不得误拒，转单跳检索"
-            return RetrievalStrategy(strategy_str), data.get("rationale", "LLM routing")
+        data = _RoutePayload.model_validate(json.loads(content))
+        if data.strategy == "direct":
+            # Only the confirmed greeting fast path above may bypass policy evidence.
+            return RetrievalStrategy.SINGLE, "未通过纯问候条件，保守转入政策检索"
+        return RetrievalStrategy(data.strategy), data.rationale
     except Exception as e:
         logger.warning(f"LLM routing failed or JSON invalid, falling back to rule-based: {e}")
 

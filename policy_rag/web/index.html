@@ -931,11 +931,13 @@
         }
 
         if (msg.state === "complete") {
-          const cites = dedupeCitations(msg.citations, msg.evidence);
+          const hasModelCitations = (msg.citations || []).length > 0;
+          const displayedSources = hasModelCitations ? msg.citations : (msg.evidence || []);
+          const cites = dedupeCitations(displayedSources, msg.evidence);
           if (cites.length) {
             const citeBar = document.createElement("div");
             citeBar.className = "citation-list";
-            citeBar.innerHTML = `<span class="citation-heading">来源</span>`;
+            citeBar.innerHTML = `<span class="citation-heading">${hasModelCitations ? "引用来源" : "参考条款"}</span>`;
 
             const drawer = document.createElement("div");
             drawer.className = "citation-drawer";
@@ -962,7 +964,7 @@
                     <strong>${escapeHtml(cite.title)}${cite.section ? " · " + escapeHtml(cite.section) : ""}</strong>
                     <span>${escapeHtml(cite.chunk_id)}</span>
                   </div>
-                  <div class="citation-drawer-body">${escapeHtml(cite.content || "（该引用条款已通过校验）")}</div>
+                  <div class="citation-drawer-body">${escapeHtml(cite.content || "（暂无条款正文）")}</div>
                 `;
               };
               citeBar.appendChild(btn);

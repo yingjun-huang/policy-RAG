@@ -1,0 +1,17 @@
+{
+  "status": "ready",
+  "capabilities": {
+    "status": "ready",
+    "vector_store": "qdrant",
+    "clause_graph_enabled": true,
+    "clause_graph_nodes": 32,
+    "clause_graph_edges": 26,
+    "embedding_backend": "bge-local",
+    "reranker_backend": "cross-encoder-onnx-int8",
+    "llm_backend": "openai-compat:deepseek-chat",
+    "chunk_count": 114,
+    "degraded": false,
+    "degradation_reasons": []
+  },
+  "paid_api_calls": 0
+}

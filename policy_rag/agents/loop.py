@@ -7,6 +7,7 @@ import logging
 import time
 from typing import Any
 
+from policy_rag.agents.contracts import EvidenceGrade, RewritePayload, parse_model_bool as _parse_bool
 from policy_rag.agents.prompts import (
     GRADE_SYSTEM,
     GRADE_USER,
@@ -27,20 +28,6 @@ from policy_rag.schemas.retrieval import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_bool(value: Any, *, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"true", "1", "yes"}:
-            return True
-        if lowered in {"false", "0", "no", ""}:
-            return False
-    return bool(value)
 
 
 def _clean_json_str(text: str) -> str:
@@ -75,230 +62,112 @@ def _format_evidence_for_prompt(chunks: list[RetrievedChunk]) -> str:
 
 
 async def run_self_rag_loop(
-    query: str,
-    retriever: HybridRetriever,
-    reranker: DocumentReranker,
-    llm: LLMProvider,
-    max_hops: int = 2,
-    top_k: int = 3,
-    *,
-    retrieval_query: str | None = None,
-    metadata_filter: MetadataFilter | None = None,
-    parent_expansion: bool = True,
-    max_parent_chars: int = 1500,
-    max_context_chars: int = 4500,
+    query: str, retriever: HybridRetriever, reranker: DocumentReranker, llm: LLMProvider,
+    max_hops: int = 2, top_k: int = 3, *, retrieval_query: str | None = None,
+    metadata_filter: MetadataFilter | None = None, parent_expansion: bool = True,
+    max_parent_chars: int = 1500, max_context_chars: int = 4500,
 ) -> dict[str, Any]:
-    """Executes a controlled multi-hop retrieval loop.
-
-    Key safeguards:
-    1. 3-state grading (SUFFICIENT / INSUFFICIENT / GRADER_UNAVAILABLE).
-    2. Anti-thrashing progress check: if no new unique chunks retrieved in a hop -> NO_NEW_EVIDENCE exit.
-    3. Max hops guardrail -> MAX_HOPS_REACHED exit.
-    4. Graceful degradation on LLM JSON/network errors -> GRADER_UNAVAILABLE with accumulated evidence.
-    """
-    accumulated_chunks: dict[str, RetrievedChunk] = {}
-    hop_traces: list[HopTrace] = []
-    all_rewritten_queries: list[str] = []
-    final_grade_status = GradeStatus.INSUFFICIENT
+    """One or two retrieval rounds, with explicit policy vs user-fact gaps."""
+    accumulated: dict[str, RetrievedChunk] = {}
+    traces: list[HopTrace] = []
+    rewrites: list[str] = []
+    grade = GradeStatus.INSUFFICIENT
     exit_reason = ExitReason.MAX_HOPS_REACHED
     missing_aspect = ""
-    retrieval_ms = 0.0
-    rerank_ms = 0.0
-    llm_ms = 0.0
-
-    current_query = (retrieval_query or query).strip()
-
+    missing_type = "policy_evidence"
+    missing_slots: list[str] = []
+    questions: list[str] = []
+    action = ResponseAction.ANSWER
+    retrieval_ms = rerank_ms = llm_ms = 0.0
+    error = None
+    first_query = (retrieval_query or query).strip()
     for hop in range(1, max_hops + 1):
-        # 1. Determine queries for this hop
-        hop_queries: list[str] = []
-        if hop == 1:
-            hop_queries = [current_query]
-        else:
-            # Query rewrite based on missing_aspect
+        hop_queries = [first_query]
+        if hop > 1:
+            started = time.perf_counter()
             try:
-                rewrite_prompt = [
-                    {"role": "system", "content": REWRITE_SYSTEM},
-                    {"role": "user", "content": REWRITE_USER.format(query=query, missing_aspect=missing_aspect)},
-                ]
-                t_llm = time.perf_counter()
-                resp = await llm.generate(rewrite_prompt, temperature=0.1)
-                llm_ms += (time.perf_counter() - t_llm) * 1000
-                data = json.loads(_clean_json_str(resp.content))
-                hop_queries = [q.strip() for q in data.get("queries", []) if q.strip()]
-            except Exception as e:
-                logger.warning(f"Query rewrite failed at hop {hop}: {e}")
+                response = await llm.generate([
+                    {"role":"system","content":REWRITE_SYSTEM},
+                    {"role":"user","content":REWRITE_USER.format(query=query,missing_aspect=missing_aspect)},
+                ], temperature=0.1, max_tokens=512, response_format={"type":"json_object"})
+                payload = RewritePayload.model_validate(json.loads(_clean_json_str(response.content)))
+                hop_queries = list(dict.fromkeys(payload.queries))
+            except Exception as exc:
+                logger.warning("Query rewrite unavailable: %s",exc)
                 hop_queries = [f"{query} {missing_aspect}".strip()]
+            finally:
+                llm_ms += (time.perf_counter()-started)*1000
+            rewrites.extend(hop_queries)
 
-            if not hop_queries:
-                hop_queries = [f"{query} {missing_aspect}".strip()]
-
-            all_rewritten_queries.extend(hop_queries)
-
-        # 2. Retrieve & Rerank for each query in this hop with shared pre-fusion filter
-        hop_retrieved_map: dict[str, RetrievedChunk] = {}
-        for q in hop_queries:
-            t_ret = time.perf_counter()
-            raw_candidates = await retriever.retrieve(
-                q,
-                top_k=top_k * 2,
-                metadata_filter=metadata_filter,
-            )
-            retrieval_ms += (time.perf_counter() - t_ret) * 1000
-
-            t_rerank = time.perf_counter()
-            reranked = await reranker.rerank(q, raw_candidates, top_k=top_k)
-            rerank_ms += (time.perf_counter() - t_rerank) * 1000
-            for c in reranked:
-                if c.chunk_id not in hop_retrieved_map:
-                    hop_retrieved_map[c.chunk_id] = c
-
-        retrieved_ids = list(hop_retrieved_map.keys())
-        new_chunk_ids = [cid for cid in retrieved_ids if cid not in accumulated_chunks]
-
-        # 3. Anti-thrashing progress check
-        if hop > 1 and len(new_chunk_ids) == 0:
-            exit_reason = ExitReason.NO_NEW_EVIDENCE
-            hop_traces.append(
-                HopTrace(
-                    hop_index=hop,
-                    query=current_query,
-                    rewritten_queries=hop_queries,
-                    retrieved_chunk_ids=retrieved_ids,
-                    new_chunk_ids=[],
-                    grade_status=final_grade_status,
-                    missing_aspect=missing_aspect,
-                    rationale="本轮未检索到任何去重增量证据，提前终止补检以防止死循环空耗。",
-                )
-            )
+        retrieved: dict[str, RetrievedChunk] = {}
+        for search_query in hop_queries:
+            started=time.perf_counter()
+            raw=await retriever.retrieve(search_query,top_k=top_k*2,metadata_filter=metadata_filter)
+            retrieval_ms+=(time.perf_counter()-started)*1000
+            started=time.perf_counter()
+            ranked=await reranker.rerank(search_query,raw,top_k=top_k)
+            rerank_ms+=(time.perf_counter()-started)*1000
+            for c in ranked:retrieved.setdefault(c.chunk_id,c)
+        ids=list(retrieved)
+        new_ids=[cid for cid in ids if cid not in accumulated]
+        if hop>1 and not new_ids:
+            exit_reason=ExitReason.NO_NEW_EVIDENCE
+            traces.append(HopTrace(hop_index=hop,query=first_query,rewritten_queries=hop_queries,
+                retrieved_chunk_ids=ids,new_chunk_ids=[],grade_status=grade,missing_aspect=missing_aspect,
+                rationale="本轮未检索到去重增量证据，停止补检。"))
             break
-
-        # Accumulate new chunks
-        for cid in new_chunk_ids:
-            accumulated_chunks[cid] = hop_retrieved_map[cid]
-
-        # 4. Grade accumulated evidence (after parent expansion so intact tables/clauses are visible)
-        raw_evidence_list = list(accumulated_chunks.values())
-        if not raw_evidence_list:
-            missing_aspect = "未检索到适用的政策条款"
-            hop_traces.append(
-                HopTrace(
-                    hop_index=hop,
-                    query=current_query,
-                    rewritten_queries=hop_queries if hop > 1 else [],
-                    retrieved_chunk_ids=[],
-                    new_chunk_ids=[],
-                    grade_status=GradeStatus.INSUFFICIENT,
-                    missing_aspect=missing_aspect,
-                    rationale="本轮未检索到任何匹配筛选条件的证据片段。",
-                )
-            )
+        for cid in new_ids:accumulated[cid]=retrieved[cid]
+        if not accumulated:
+            missing_aspect="未检索到适用的政策条款"
+            traces.append(HopTrace(hop_index=hop,query=first_query,rewritten_queries=hop_queries,
+                retrieved_chunk_ids=[],new_chunk_ids=[],grade_status=GradeStatus.INSUFFICIENT,
+                missing_aspect=missing_aspect,rationale="本轮没有匹配筛选条件的证据。"))
             continue
 
-        graded_evidence_list = expand_parent_contexts(
-            raw_evidence_list,
-            enabled=parent_expansion,
-            max_parent_chars=max_parent_chars,
-            max_total_chars=max_context_chars,
-        )
-        evidence_text = _format_evidence_for_prompt(graded_evidence_list)
-
+        evidence=expand_parent_contexts(list(accumulated.values()),enabled=parent_expansion,
+            max_parent_chars=max_parent_chars,max_total_chars=max_context_chars)
+        started=time.perf_counter()
         try:
-            grade_prompt = [
-                {"role": "system", "content": GRADE_SYSTEM},
-                {"role": "user", "content": GRADE_USER.format(query=query, evidence=evidence_text)},
-            ]
-            t_grade = time.perf_counter()
-            resp = await llm.generate(grade_prompt, temperature=0.0)
-            llm_ms += (time.perf_counter() - t_grade) * 1000
-            grade_data = json.loads(_clean_json_str(resp.content))
-            is_sufficient = _parse_bool(grade_data.get("sufficient"), default=False)
-            missing_aspect = str(grade_data.get("missing_aspect", "")).strip()
-            rationale = str(grade_data.get("rationale", ""))
-
-            if is_sufficient:
-                final_grade_status = GradeStatus.SUFFICIENT
-                exit_reason = ExitReason.SUFFICIENT_EVIDENCE
-                hop_traces.append(
-                    HopTrace(
-                        hop_index=hop,
-                        query=current_query,
-                        rewritten_queries=hop_queries if hop > 1 else [],
-                        retrieved_chunk_ids=retrieved_ids,
-                        new_chunk_ids=new_chunk_ids,
-                        grade_status=GradeStatus.SUFFICIENT,
-                        missing_aspect="",
-                        rationale=rationale,
-                    )
-                )
-                break
-            else:
-                final_grade_status = GradeStatus.INSUFFICIENT
-                hop_traces.append(
-                    HopTrace(
-                        hop_index=hop,
-                        query=current_query,
-                        rewritten_queries=hop_queries if hop > 1 else [],
-                        retrieved_chunk_ids=retrieved_ids,
-                        new_chunk_ids=new_chunk_ids,
-                        grade_status=GradeStatus.INSUFFICIENT,
-                        missing_aspect=missing_aspect,
-                        rationale=rationale,
-                    )
-                )
-        except Exception as e:
-            logger.warning(f"Evidence grading failed or returned invalid JSON at hop {hop}: {e}")
-            final_grade_status = GradeStatus.GRADER_UNAVAILABLE
-            exit_reason = ExitReason.SUFFICIENT_EVIDENCE  # Degrade gracefully to answer with available evidence
-            hop_traces.append(
-                HopTrace(
-                    hop_index=hop,
-                    query=current_query,
-                    rewritten_queries=hop_queries if hop > 1 else [],
-                    retrieved_chunk_ids=retrieved_ids,
-                    new_chunk_ids=new_chunk_ids,
-                    grade_status=GradeStatus.GRADER_UNAVAILABLE,
-                    missing_aspect=missing_aspect,
-                    rationale=f"评审模型调用异常或JSON损坏，降级终止补检: {e}",
-                )
-            )
+            response=await llm.generate([
+                {"role":"system","content":GRADE_SYSTEM},
+                {"role":"user","content":GRADE_USER.format(query=query,evidence=_format_evidence_for_prompt(evidence))},
+            ],temperature=0.0,max_tokens=1024,response_format={"type":"json_object"})
+            decision=EvidenceGrade.model_validate(json.loads(_clean_json_str(response.content)))
+            missing_type=decision.missing_type
+            missing_aspect=decision.missing_aspect
+            missing_slots=decision.missing_slots
+            questions=decision.clarification_questions
+            grade=GradeStatus.SUFFICIENT if decision.sufficient else GradeStatus.INSUFFICIENT
+            rationale=decision.rationale
+            if decision.sufficient:
+                exit_reason=ExitReason.SUFFICIENT_EVIDENCE
+            elif missing_type in {"user_facts","both"}:
+                action=ResponseAction.CLARIFY
+                exit_reason=ExitReason.CLARIFICATION_NEEDED
+        except Exception as exc:
+            logger.warning("Evidence grading unavailable: %s",exc)
+            grade=GradeStatus.GRADER_UNAVAILABLE
+            exit_reason=ExitReason.GRADER_UNAVAILABLE
+            action=ResponseAction.ABSTAIN
+            error="grader_unavailable"
+            rationale="证据评审不可用，停止补检并保守留白。"
+        finally:
+            llm_ms+=(time.perf_counter()-started)*1000
+        traces.append(HopTrace(hop_index=hop,query=first_query,
+            rewritten_queries=hop_queries if hop>1 else [],retrieved_chunk_ids=ids,new_chunk_ids=new_ids,
+            grade_status=grade,missing_aspect=missing_aspect,rationale=rationale))
+        if grade in {GradeStatus.SUFFICIENT,GradeStatus.GRADER_UNAVAILABLE} or action==ResponseAction.CLARIFY:
             break
 
-    final_evidence = expand_parent_contexts(
-        list(accumulated_chunks.values()),
-        enabled=parent_expansion,
-        max_parent_chars=max_parent_chars,
-        max_total_chars=max_context_chars,
-    )
-
-    if not final_evidence:
-        return {
-            "evidence": [],
-            "hop_traces": hop_traces,
-            "hop_count": len(hop_traces),
-            "final_grade_status": GradeStatus.INSUFFICIENT,
-            "exit_reason": ExitReason.NO_EVIDENCE,
-            "action": ResponseAction.ABSTAIN,
-            "missing_aspect": missing_aspect or "未检索到适用的政策条款",
-            "rewritten_queries": all_rewritten_queries,
-            "retrieval_ms": round(retrieval_ms, 2),
-            "rerank_ms": round(rerank_ms, 2),
-            "llm_ms": round(llm_ms, 2),
-        }
-
-    # If completed all hops without early exit
-    if exit_reason not in {ExitReason.SUFFICIENT_EVIDENCE, ExitReason.NO_NEW_EVIDENCE}:
-        exit_reason = ExitReason.MAX_HOPS_REACHED
-
-    return {
-        "evidence": final_evidence,
-        "hop_traces": hop_traces,
-        "hop_count": len(hop_traces),
-        "final_grade_status": final_grade_status,
-        "exit_reason": exit_reason,
-        "action": ResponseAction.ANSWER,
-        "missing_aspect": missing_aspect,
-        "rewritten_queries": all_rewritten_queries,
-        "retrieval_ms": round(retrieval_ms, 2),
-        "rerank_ms": round(rerank_ms, 2),
-        "llm_ms": round(llm_ms, 2),
-    }
+    evidence=expand_parent_contexts(list(accumulated.values()),enabled=parent_expansion,
+        max_parent_chars=max_parent_chars,max_total_chars=max_context_chars)
+    if not evidence:
+        grade=GradeStatus.INSUFFICIENT
+        exit_reason=ExitReason.NO_EVIDENCE
+        action=ResponseAction.ABSTAIN
+        missing_aspect=missing_aspect or "未检索到适用的政策条款"
+    return {"evidence":evidence,"retrieved_chunks":evidence,"hop_traces":traces,"hop_count":len(traces),
+        "final_grade_status":grade,"exit_reason":exit_reason,"action":action,
+        "missing_type":missing_type,"missing_aspect":missing_aspect,"missing_slots":missing_slots,
+        "clarification_questions":questions,"rewritten_queries":rewrites,"error":error,
+        "retrieval_ms":round(retrieval_ms,2),"rerank_ms":round(rerank_ms,2),"llm_ms":round(llm_ms,2)}

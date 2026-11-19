@@ -117,7 +117,7 @@ async def test_self_rag_loop_anti_thrashing_no_new_evidence(mock_retriever_pipel
     }
     llm = FakeLLMProvider(
         canned=canned,
-        default_response='{"sufficient": false, "missing_aspect": "生鲜类目规则", "rationale": "未找到生鲜细则"}',
+        default_response='{"sufficient": false, "missing_type":"policy_evidence", "missing_aspect": "生鲜类目规则", "rationale": "未找到生鲜细则"}',
     )
     result = await run_self_rag_loop(
         query="生鲜水果支持退货吗？",
@@ -143,7 +143,7 @@ async def test_self_rag_loop_grader_failure_graceful_degrade(mock_retriever_pipe
         max_hops=2,
     )
     assert result["final_grade_status"] == GradeStatus.GRADER_UNAVAILABLE
-    assert result["exit_reason"] == ExitReason.SUFFICIENT_EVIDENCE  # Degraded exit
+    assert result["exit_reason"] == ExitReason.GRADER_UNAVAILABLE  # Explicit unavailable exit
     assert len(result["evidence"]) > 0
 
 
@@ -176,6 +176,7 @@ async def test_langgraph_e2e_refuse_transactional(mock_retriever_pipeline):
 async def test_langgraph_e2e_single_hop_qa(mock_retriever_pipeline):
     hybrid, reranker = mock_retriever_pipeline
     llm = FakeLLMProvider(
+        canned={"已有政策证据":'{"sufficient":true}'},
         default_response='{"strategy": "single", "rationale": "常规问答"}'
     )
     # When generating answer

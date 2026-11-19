@@ -1,0 +1,422 @@
+{
+  "status": "retained_final_results",
+  "response_errors": [
+    {
+      "id": "jd_case_005",
+      "turn_idx": 0,
+      "query": "买的保健品页面挂了“假一赔十”服务保障，平台看了凭证也确认是假货了，这单实付30元，最后能退我多少钱、赔多少钱？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出退30元及赔1000元合计1030元的正确结论。"
+    },
+    {
+      "id": "jd_case_007",
+      "turn_idx": 0,
+      "query": "下单后商家自己承认卖超了发不出来，也没有获批什么免责理由，这种缺货违约平台怎么赔钱？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出缺货退款及30%补偿（10-500元）的核心结论。"
+    },
+    {
+      "id": "jd_case_031",
+      "turn_idx": 0,
+      "query": "网上买的螃蟹订单写着支持“优鲜赔”，一箱8只死了5只，签收4小时内就把快递面单和死蟹照片传给客服核实了。这单能全额退吗，死螃蟹还得寄回吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出全额退款及免寄回结论，核心信息缺失。"
+    },
+    {
+      "id": "jd_case_035",
+      "turn_idx": 0,
+      "query": "我是普通用户，在自营普通快递买了一单120块钱、重3kg的东西寄到乌鲁木齐，下单时正向运费总共多少？如果后面售后确认是商品质量问题退货，之前付过的这笔运费会一并退吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未作答，未给出运费25元及质量退货退运费结论，属应回答却留白。"
+    },
+    {
+      "id": "jd_case_037",
+      "turn_idx": 0,
+      "query": "下单的现货承诺48小时发货，结果付完钱都130个小时了商家才承认库里没货，而且也没获批什么免责。除了把货款退给我，我能同时拿到延迟发货和缺货两笔赔偿吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出缺货补偿公式及不累加规则，核心结论缺失。"
+    },
+    {
+      "id": "jd_case_049",
+      "turn_idx": 0,
+      "query": "商家填了个快递单号挂了49个小时一直没揽收记录，平台核实对方也拿不出有效承运证明、根本没实际发货。这算什么问题怎么赔？我能直接申请仅退款吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出虚假发货认定、20%补偿及仅退款结论，核心内容缺失。"
+    },
+    {
+      "id": "jd_case_114",
+      "turn_idx": 0,
+      "query": "网购一套陶瓷茶具签收发现运碎了，售后已经核实确认是卖家运输损坏责任，按退货流程找快递退回去花了20块钱运费，订单自带的运费险先赔付到账了12元。我能在拿完这12元保险之后再要求卖家把20元全额重赔给我吗，还是只能补差额8元？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出“不得重复全额索赔、仅补差额8元”的核心结论，属该回答时留白。"
+    },
+    {
+      "id": "jd_case_059",
+      "turn_idx": 0,
+      "query": "买的一箱10个芒果，每个价格相同，整单花了150元。商品有优鲜赔，签收12小时就提交照片核实烂了6个，按坏果数量一共能退多少？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "应回答坏损率60%达50%档，全额退150元；系统异常未作答，属该答未答。"
+    },
+    {
+      "id": "jd_case_067",
+      "turn_idx": 0,
+      "query": "在自营买了一单常规日用品发普通快递去新疆（不是大件也不是同城秒送），整个包裹连包装重3.2kg，单算偏远地区附加费是多少？PLUS会员能免这笔费吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出30元附加费及PLUS不免的结论，核心信息缺失。"
+    },
+    {
+      "id": "jd_case_116",
+      "turn_idx": 0,
+      "query": "我不是PLUS会员，在自营普通快递下单寄上海（非大件非秒送）：第一单实付整整59元、包裹正好重5.0kg；第二单实付58.9元、包裹重5.01kg。这两单的运费分别收多少？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出两单运费结论，核心信息缺失。"
+    },
+    {
+      "id": "jd_case_119",
+      "turn_idx": 0,
+      "query": "买了箱30枚单价一样的土鸡蛋花了60块钱（商品页标有“优鲜赔”），签收24小时内拍照上传并经核实碎了正好9枚。破损整整三成能直接全额退60元吗，实际按规定退多少？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未作答，未给出应退18元及“不超过30%按破损数量退款”的结论，属该回答时留白。"
+    },
+    {
+      "id": "jd_case_135",
+      "turn_idx": 0,
+      "query": "普通用户买120元、7.2kg大米走自营普通快递发北京，2023年7月买过一单，2024年4月又买了一模一样的一单。2023年8月新版把免基础运费门槛从99元降到59元后，2024年这单的超重续重费是不是也跟着变少了，还是两单总运费收得一样？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未作答，未给出两单运费均为3元且续重口径未变的正确结论，属该回答时留白。"
+    },
+    {
+      "id": "jd_case_136",
+      "turn_idx": 1,
+      "query": "寄到青海省玉树州称多县，系统里明示属于青海偏远县范围。",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户已补充明确偏远县事实，应直接计算并回答19元；系统异常拒答，未给出任何结论，属应回答时留白。"
+    },
+    {
+      "id": "jd_case_145",
+      "turn_idx": 1,
+      "query": "保单额度写着12元，是个人不喜欢才退货的；售后已经通过、真实运单号也填进去了，商家刚确认收货办完退款。",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出理赔触发、12元保额及10元差额等核心结论。"
+    },
+    {
+      "id": "jd_sup_v1_004",
+      "turn_idx": 1,
+      "query": "客服让我只填一个金额，但我们还没协商。仅凭这些政策，能直接确定是48元还是80元吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "response_error": "generation_invalid_response",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未回答，仅报错留白；应说明不能确定单一数值、仅能给出48–80元区间且须双方确认。"
+    }
+  ],
+  "partial_and_incorrect": [
+    {
+      "id": "jd_case_005",
+      "turn_idx": 0,
+      "query": "买的保健品页面挂了“假一赔十”服务保障，平台看了凭证也确认是假货了，这单实付30元，最后能退我多少钱、赔多少钱？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出退30元及赔1000元合计1030元的正确结论。"
+    },
+    {
+      "id": "jd_case_007",
+      "turn_idx": 0,
+      "query": "下单后商家自己承认卖超了发不出来，也没有获批什么免责理由，这种缺货违约平台怎么赔钱？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出缺货退款及30%补偿（10-500元）的核心结论。"
+    },
+    {
+      "id": "jd_case_008",
+      "turn_idx": 0,
+      "query": "刚才下单买了个小台灯，订单后台还没点击发货、快递也没揽收，现在申请取消还需要商家一单一单审核吗？",
+      "predicted_answer": "本系统仅提供商城政策咨询，无法查询或办理具体订单业务。请前往商城 App 的【我的订单】或联系人工客服。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户咨询未发货取消是否需商家审核，系统应依据政策回答自动审核全额退款，却拒答未给结论，属该答未答。"
+    },
+    {
+      "id": "jd_case_026",
+      "turn_idx": 0,
+      "query": "手机买回来第10天主板突然坏了（已经激活过），售后检测确认不是我自己摔坏或进水的，店里同款还有货。这种情况能要求直接退钱吗，还是只能换？上门取件谁付钱？",
+      "predicted_answer": "为判断适用条款，请补充：请问这台手机的签收日期是哪一天？（用于确认是否在签收第0-7天或第8-15天的质量换退窗口内）",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未回答，反而要求补充签收日期；用户已说明第10天，属第8-15天窗口，应直接答可换或修、同款有货不支持仅退款、取件费0元。"
+    },
+    {
+      "id": "jd_case_031",
+      "turn_idx": 0,
+      "query": "网上买的螃蟹订单写着支持“优鲜赔”，一箱8只死了5只，签收4小时内就把快递面单和死蟹照片传给客服核实了。这单能全额退吗，死螃蟹还得寄回吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出全额退款及免寄回结论，核心信息缺失。"
+    },
+    {
+      "id": "jd_case_035",
+      "turn_idx": 0,
+      "query": "我是普通用户，在自营普通快递买了一单120块钱、重3kg的东西寄到乌鲁木齐，下单时正向运费总共多少？如果后面售后确认是商品质量问题退货，之前付过的这笔运费会一并退吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未作答，未给出运费25元及质量退货退运费结论，属应回答却留白。"
+    },
+    {
+      "id": "jd_case_036",
+      "turn_idx": 0,
+      "query": "公司采购5台电脑开了企业专票并且已经抵扣了，其中一台签收第6天开机蓝屏，售后检测确认是出厂硬件故障。这台还能退吗？要是公司这头红字编号还没办下来，卖家能直接从含税退款里扣掉13%吗？",
+      "predicted_answer": "为判断适用条款，请补充：这台电脑具体属于哪类商品（如笔记本电脑、台式整机、显示器等）？；这台电脑的签收日期是哪一天？；你计划在哪一天提交退货申请？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户已给出签收第6天及故障确认，政策可直接回答可退且不得扣13%；系统未答核心结论而要求澄清，属该答未答。"
+    },
+    {
+      "id": "jd_case_037",
+      "turn_idx": 0,
+      "query": "下单的现货承诺48小时发货，结果付完钱都130个小时了商家才承认库里没货，而且也没获批什么免责。除了把货款退给我，我能同时拿到延迟发货和缺货两笔赔偿吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出缺货补偿公式及不累加规则，核心结论缺失。"
+    },
+    {
+      "id": "jd_case_038",
+      "turn_idx": 0,
+      "query": "买了个日常戴的金镶玉吊坠，把防调换扣剪了之后第3天发现金扣镀层在掉，售后确认原本就是质量瑕疵，吊坠证书和盒子也都在。这还能退货吗？",
+      "predicted_answer": "为判断适用条款，请补充：请问该吊坠的签收日期是哪一天？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未回答核心问题，仅追问签收日期；用户已述第3天且质量问题已确认，应直接答可退货，剪签不排除质量保障。"
+    },
+    {
+      "id": "jd_case_041",
+      "turn_idx": 0,
+      "query": "给孩子买的婴儿推车推出门试了一圈，轮子沾了点泥，第2天发现刹车失灵，售后检测说是出厂制造缺陷、不是我推坏的。这种情况还能按质量问题退货吗？",
+      "predicted_answer": "为判断适用条款，请补充：这辆婴儿推车是哪天签收的？（用于判断是否仍在质量问题的退货窗口内）",
+      "primary_judge_verdict": "partial",
+      "primary_judge_rationale": "系统仅追问签收日期，未回答核心结论：室外磨损仅限个人无理由退货，已确认无因果关系的制造缺陷在七天内可质量退货；遗漏关键政策结论。"
+    },
+    {
+      "id": "jd_case_042",
+      "turn_idx": 0,
+      "query": "充了100块钱话费等了3天都没到账，刚才跟客服核实是接口失败但系统一直没自动退款。我能申请哪种退款，还用寄回什么东西吗？",
+      "predicted_answer": "本系统仅提供商城政策咨询，无法查询或办理具体订单业务。请前往商城 App 的【我的订单】或联系人工客服。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统拒答未按政策回答：充值失败48小时后应原路退100元，可申请核实及仅退款，无需寄回实体。"
+    },
+    {
+      "id": "jd_case_046",
+      "turn_idx": 0,
+      "query": "买台嵌入式洗碗机已经固定接好水管通水了，才第4天主板就冒烟坏了，售后查了确认是原本的质量故障、跟我家里安装没关系。还能办质量退货吗？拆机和上门拉走谁付钱？",
+      "predicted_answer": "为判断适用条款，请补充：这台嵌入式洗碗机的签收日期是哪一天？",
+      "primary_judge_verdict": "partial",
+      "primary_judge_rationale": "系统仅追问签收日期，未回答质量退货及费用承担；虽澄清合理，但遗漏核心结论，属大方向未错但关键内容缺失。"
+    },
+    {
+      "id": "jd_case_049",
+      "turn_idx": 0,
+      "query": "商家填了个快递单号挂了49个小时一直没揽收记录，平台核实对方也拿不出有效承运证明、根本没实际发货。这算什么问题怎么赔？我能直接申请仅退款吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出虚假发货认定、20%补偿及仅退款结论，核心内容缺失。"
+    },
+    {
+      "id": "jd_case_106",
+      "turn_idx": 0,
+      "query": "买的豆浆机页面写着有“180天只换不修”，用到第100天突然电机不转了，售后检测确认不是人为弄坏的。本来想换新机，可店家说同型号已经停产没货、我也不想换别的款，想直接退钱，商家却按使用天数扣我折旧费，这合理吗？",
+      "predicted_answer": "您的情况属于有“180天只换不修”标识、经售后确认非人为故障，且同型号停产无货、您不接受其他型号。按专项规则，无同型号可换时处理“按通用规则”，但通用规则仅明确第8至15天符合换货条件却无同型号可换且不接受其他型号的退款不收折旧费；您已用到第100天，超出该窗口。现有政策证据未覆盖小家电（豆浆机）在180天专项下无同型号可换、买家坚持退款时是否收折旧及折旧费率/计算方式，且明确规定未列商品不得借用其他行费率。因此商家按使用天数扣折旧费是否合理，暂无法依据现有政策给出确定结论，建议您向平台客服进一步核实该专项场景的处理口径。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统拒答，未按标准答案认定无同型号可换时退款不得收折旧费；错误以超出8-15天窗口为由回避，核心结论缺失。"
+    },
+    {
+      "id": "jd_case_110",
+      "turn_idx": 0,
+      "query": "买了桶150元、页头标了“破损包赔”的玻璃瓶装橄榄油，签收后出差耽误到第60小时拆箱才发现瓶口撞裂渗漏了大概20%（面单和破损照都留好了）。客服说早就过了48小时快速窗口，我这权利直接作废一分没得赔了，他这么说对吗？按专项里原本对应漏20%该算多少？",
+      "predicted_answer": "为判断适用条款，请补充：您是在签收后第60小时才拆箱发现破损，请问您实际向平台提交售后/破损包赔申请的时间是签收后多久？是否在48小时内提交过申请？",
+      "primary_judge_verdict": "partial",
+      "primary_judge_rationale": "系统仅追问提交时间，未指出客服“超时即权利作废”说法错误，也未给出20%渗漏对应30元计算，遗漏核心结论。"
+    },
+    {
+      "id": "jd_case_114",
+      "turn_idx": 0,
+      "query": "网购一套陶瓷茶具签收发现运碎了，售后已经核实确认是卖家运输损坏责任，按退货流程找快递退回去花了20块钱运费，订单自带的运费险先赔付到账了12元。我能在拿完这12元保险之后再要求卖家把20元全额重赔给我吗，还是只能补差额8元？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出“不得重复全额索赔、仅补差额8元”的核心结论，属该回答时留白。"
+    },
+    {
+      "id": "jd_case_115",
+      "turn_idx": 0,
+      "query": "网购的板式书柜自己拧螺丝装起来以后，才发现侧板边角磕掉了一块漆皮、还少了两颗配件螺丝。商家说只能免费给我补发新木板和螺丝、不准退货，说装好了就必须接受补件，这说法对吗？如果我愿意补件，商家最晚多久必须发出；如果我不想修坚持退货呢？",
+      "predicted_answer": "为判断适用条款，请补充：您签收该板式书柜的具体日期是哪天？；收货地址所在的县（区）是哪里？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未回答核心问题，反而要求补充签收日期和地址；用户已明确在七天内且问题属家具补件与退货，政策可直接适用，无需澄清。"
+    },
+    {
+      "id": "jd_case_057",
+      "turn_idx": 0,
+      "query": "下单的一箱苹果10个装（每个单价一样），实付80元，订单有优鲜赔服务。签收12小时内拍照上传并核实坏了4个，一共能退回多少钱区间？",
+      "predicted_answer": "您这单苹果有优鲜赔标识，签收后12小时内提交坏损凭证也在果蔬48小时反馈窗口内，且核实坏损后无需寄回；但现有政策只明确了活鲜、冷冻肉蛋和禽蛋的退款比例，缺少普通果蔬（苹果）坏损对应退款比例规则，因此无法确定4个坏果能退回多少钱区间。建议您以售后审核结果为准，或补充咨询平台客服确认苹果坏损的退款标准。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统错误声称缺少普通果蔬退款比例规则，实际政策明确坏损率40%落在30%≤r<50%区间，应退实付金额50%–80%即40–64元，属核心结论错误。"
+    },
+    {
+      "id": "jd_case_059",
+      "turn_idx": 0,
+      "query": "买的一箱10个芒果，每个价格相同，整单花了150元。商品有优鲜赔，签收12小时就提交照片核实烂了6个，按坏果数量一共能退多少？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "应回答坏损率60%达50%档，全额退150元；系统异常未作答，属该答未答。"
+    },
+    {
+      "id": "jd_case_067",
+      "turn_idx": 0,
+      "query": "在自营买了一单常规日用品发普通快递去新疆（不是大件也不是同城秒送），整个包裹连包装重3.2kg，单算偏远地区附加费是多少？PLUS会员能免这笔费吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出30元附加费及PLUS不免的结论，核心信息缺失。"
+    },
+    {
+      "id": "jd_case_116",
+      "turn_idx": 0,
+      "query": "我不是PLUS会员，在自营普通快递下单寄上海（非大件非秒送）：第一单实付整整59元、包裹正好重5.0kg；第二单实付58.9元、包裹重5.01kg。这两单的运费分别收多少？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应作答却异常拒答，未给出两单运费结论，核心信息缺失。"
+    },
+    {
+      "id": "jd_case_119",
+      "turn_idx": 0,
+      "query": "买了箱30枚单价一样的土鸡蛋花了60块钱（商品页标有“优鲜赔”），签收24小时内拍照上传并经核实碎了正好9枚。破损整整三成能直接全额退60元吗，实际按规定退多少？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未作答，未给出应退18元及“不超过30%按破损数量退款”的结论，属该回答时留白。"
+    },
+    {
+      "id": "jd_case_134",
+      "turn_idx": 0,
+      "query": "我在2023年12月买过一箱没有任何生鲜服务标识的新鲜橙子，2024年3月又买过一箱同样没带优鲜赔标识的新鲜水果。有人说老规则和新版优鲜赔起码都能管水果坏损免寄回或者不想要了走7天无理由，这两种情况到底能不能自动享有？",
+      "predicted_answer": "为判断适用条款，请补充：第一箱橙子（2023年12月购买）你是在什么时间提交售后申请的？；第二箱水果（2024年3月购买）你是在什么时间提交售后申请的？；这两箱水果各自的签收日期是哪天？；你是否在签收后48小时内提交了坏损凭证（面单与坏果照片）？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户问无标识水果能否自动享有免寄回或七天无理由，标准答案应直接答均不能；系统未回答而反问申请时间，属该答未答。"
+    },
+    {
+      "id": "jd_case_135",
+      "turn_idx": 0,
+      "query": "普通用户买120元、7.2kg大米走自营普通快递发北京，2023年7月买过一单，2024年4月又买了一模一样的一单。2023年8月新版把免基础运费门槛从99元降到59元后，2024年这单的超重续重费是不是也跟着变少了，还是两单总运费收得一样？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未作答，未给出两单运费均为3元且续重口径未变的正确结论，属该回答时留白。"
+    },
+    {
+      "id": "jd_case_087",
+      "turn_idx": 1,
+      "query": "普通外套不是内衣，签收第3天，吊牌防调换扣都完整。",
+      "predicted_answer": "可以退。这件普通外套签收第3天，仍在七天无理由退货期内，且吊牌和防调换扣完整、未洗涤、无污渍异味和明显磨损，符合个人原因退货条件。室内合理试穿不影响完好性。个人原因退货的返程运费通常由您承担；申请时请保持吊牌、防调换扣及配件完整，并一并退回赠品。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户未确认是否洗涤/污渍异味，系统却直接断言“未洗涤、无污渍异味”并给出确定可退结论，违反澄清契约。"
+    },
+    {
+      "id": "jd_case_089",
+      "turn_idx": 1,
+      "query": "优鲜赔标签有，按枚买的20个坏5个，200元，面单和坏果照片已核实。",
+      "predicted_answer": "可以赔，按枚销售且坏损率25%（5÷20），落在10%≤r<30%区间，按实付商品金额的30%–50%退款，即60.00至100.00元，具体比例需双方确认。前提是签收后48小时内已提交面单与坏果照片并核实通过，符合优鲜赔可免寄回，退款审核通过后1–2小时原路到账。",
+      "primary_judge_verdict": "partial",
+      "primary_judge_rationale": "坏损率25%及30%-50%区间、60-100元计算正确，但未先确认签收后48小时内实际提交售后这一关键前提，直接给出可赔结论。"
+    },
+    {
+      "id": "jd_case_091",
+      "turn_idx": 1,
+      "query": "签收第10天。",
+      "predicted_answer": "为判断适用条款，请补充：这台笔记本的商品页面或订单上是否带有“180天只换不修”服务标识？",
+      "primary_judge_verdict": "partial",
+      "primary_judge_rationale": "系统未直接回答，遗漏了第10天在15天换修窗口内可换货的核心结论；追问180天标识虽相关，但未先给出通用换货结论。"
+    },
+    {
+      "id": "jd_case_136",
+      "turn_idx": 1,
+      "query": "寄到青海省玉树州称多县，系统里明示属于青海偏远县范围。",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户已补充明确偏远县事实，应直接计算并回答19元；系统异常拒答，未给出任何结论，属应回答时留白。"
+    },
+    {
+      "id": "jd_case_145",
+      "turn_idx": 1,
+      "query": "保单额度写着12元，是个人不喜欢才退货的；售后已经通过、真实运单号也填进去了，商家刚确认收货办完退款。",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统应回答却异常拒答，未给出理赔触发、12元保额及10元差额等核心结论。"
+    },
+    {
+      "id": "jd_guard_004",
+      "turn_idx": 0,
+      "query": "同城秒送即时达配送迟到了两个小时，运费险和超时免单红包分别怎么赔偿？",
+      "predicted_answer": "为判断适用条款，请补充：该订单是否带有有效的运费险？；是否已发起退货？退货原因是商品质量问题还是个人原因？；订单实付商品金额是多少？；下单时页面是否带有“超时免单”“晚必赔”或类似时效承诺标识？；承诺送达时间和实际送达时间分别是几点？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "知识库未覆盖同城秒送/即时达及超时免单红包，应拒答；系统却追问运费险、退货等细节，暗示可按普通规则处理，给出错误确定性方向。"
+    },
+    {
+      "id": "jd_guard_015",
+      "turn_idx": 0,
+      "query": "在京东自营买了一套普通礼盒想个人原因7天无理由退货，已拆运输外箱且商品完好，支持退吗？",
+      "predicted_answer": "目前无法确认这套普通礼盒能否按7天无理由退货。现有政策只覆盖小家电、手机、大家电、母婴和美妆等特定品类，没有适用于普通礼盒的通用7天无理由条款，因此无法判断“已拆运输外箱、商品完好”是否影响退货资格。建议你在订单页查看该商品是否标注“7天无理由退货”，或联系京东客服确认；在得到明确答复前，先保留商品、外箱和包装完好，不要继续使用。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统错误声称无通用7天无理由条款而拒答；实际通用规则明确拆运输外箱、商品完好可申请，应给出支持结论。"
+    },
+    {
+      "id": "jd_guard_020",
+      "turn_idx": 0,
+      "query": "面霜用完第3天过敏，我有医院诊断和总共480元的挂号药费单，在平台还没认定因果与责任归属前，按规则能直接算出商家必赔多少医药费和误工费吗？",
+      "predicted_answer": "为判断适用条款，请补充：您签收该面霜的具体日期是哪天？；您首次向平台反馈过敏的日期是哪天？；该订单购买时是否带有“假一赔十”服务标识？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户问的是责任未认定前能否直接算出必赔医药费和误工费，应拒答并说明无法预先确定；系统却追问签收日期、反馈日期和假一赔十标识，未回应核心问题，属错误确定性引导。"
+    },
+    {
+      "id": "jd_guard_022",
+      "turn_idx": 0,
+      "query": "账号里攒了5000京豆想直接提现到微信钱包，另外今年新开正式PLUS会员年卡官方售价是多少钱？",
+      "predicted_answer": "本系统仅提供商城政策咨询，无法查询或办理具体订单业务。请前往商城 App 的【我的订单】或联系人工客服。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未回答京豆不可提现及PLUS年卡价格无政策依据，仅泛化拒答，未按预期澄清留白，核心信息缺失。"
+    },
+    {
+      "id": "jd_sup_v1_004",
+      "turn_idx": 1,
+      "query": "客服让我只填一个金额，但我们还没协商。仅凭这些政策，能直接确定是48元还是80元吗？",
+      "predicted_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "系统未回答，仅报错留白；应说明不能确定单一数值、仅能给出48–80元区间且须双方确认。"
+    },
+    {
+      "id": "jd_sup_v1_007",
+      "turn_idx": 1,
+      "query": "再算另一个订单：2024年4月支付，自营普通快递同样70元、5.4kg寄上海，普通会员，这单发货运费确定是多少？",
+      "predicted_answer": "为判断适用条款，请补充：该POP店铺页面或下单页是否公示/约定了配送运费标准？；自营订单的计费毛重是否为5.4kg（是否含包装）？；该普通会员是否为权益有效的正式PLUS？",
+      "primary_judge_verdict": "incorrect",
+      "primary_judge_rationale": "用户明确为自营普通快递、普通会员、上海、70元、5.4kg，政策可直接计算为1元；系统错误要求澄清POP公示、毛重及PLUS身份，未给出确定答案。"
+    }
+  ]
+}

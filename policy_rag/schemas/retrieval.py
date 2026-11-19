@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
-from pydantic import BaseModel, Field
+from typing import Annotated, Any
+from datetime import datetime
+import re
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 
 class RetrievalStrategy(str, Enum):
@@ -29,6 +31,7 @@ class GradeStatus(str, Enum):
 
 class ExitReason(str, Enum):
     SUFFICIENT_EVIDENCE = "sufficient_evidence"   # 证据充分正常退出
+    GRADER_UNAVAILABLE = "grader_unavailable"  # 评审未完成，非充分退出
     NO_NEW_EVIDENCE = "no_new_evidence"           # 该轮未检出增量新证据提前终止
     MAX_HOPS_REACHED = "max_hops_reached"         # 达到最大配置轮次终止
     SINGLE_HOP_DONE = "single_hop_done"           # 单轮检索完成
@@ -38,6 +41,25 @@ class ExitReason(str, Enum):
     NO_EVIDENCE = "no_evidence"                   # 未检出适用证据，拒答/说明未覆盖
     ABSTAINED = "abstained"                       # 知识库未覆盖关键条款，保守拒答
 
+
+def validate_as_of(value: str | None) -> str | None:
+    if value is None:return None
+    value=value.strip()
+    if not re.match(r"^\d{4}-\d{2}-\d{2}(?:$|[T ])",value):
+        raise ValueError("as_of must be an ISO date or datetime")
+    datetime.fromisoformat(value)
+    return value
+
+FilterValue=Annotated[str,StringConstraints(strip_whitespace=True,min_length=1,max_length=100)]
+
+class PolicyContext(BaseModel):
+    """Validate supported filters while preserving evaluation namespace metadata."""
+    model_config=ConfigDict(extra="allow")
+    as_of: str | None = None
+    doc_groups: list[FilterValue] | None = Field(default=None,max_length=20)
+    policy_families: list[FilterValue] | None = Field(default=None,max_length=20)
+    merchant_types: list[FilterValue] | None = Field(default=None,max_length=20)
+    _valid_date=field_validator("as_of")(validate_as_of)
 
 class MetadataFilter(BaseModel):
     """Shared pre-retrieval / pre-fusion metadata filter across BM25 and Qdrant Dense routes."""

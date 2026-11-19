@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from policy_rag.schemas.retrieval import MetadataFilter, RetrievedChunk
+from policy_rag.schemas.retrieval import MetadataFilter, PolicyContext, RetrievedChunk
 
 _HISTORICAL_YEAR_RE = re.compile(r"(?:20(?:1[6-9]|2[0-3]))")
 _CURRENT_YEAR_RE = re.compile(r"(?:202[4-9])")
@@ -58,23 +58,16 @@ def matches_metadata_filter(
     meta = chunk.metadata or {}
     doc_status = str(meta.get("document_status", "current")).lower()
 
-    if not metadata_filter.include_archived:
-        if doc_status == "archived":
-            return False
-
-        as_of_date = _extract_date_prefix(metadata_filter.as_of)
-        if as_of_date:
-            eff_from = _extract_date_prefix(meta.get("effective_from"))
-            eff_to = _extract_date_prefix(meta.get("effective_to"))
-            exclusive = bool(meta.get("effective_to_exclusive", True))
-
-            if eff_from and as_of_date < eff_from:
-                return False
-            if eff_to:
-                if exclusive and as_of_date >= eff_to:
-                    return False
-                if not exclusive and as_of_date > eff_to:
-                    return False
+    if not metadata_filter.include_archived and doc_status == "archived":
+        return False
+    # Archive eligibility and the requested effective date are independent.
+    as_of_date = _extract_date_prefix(metadata_filter.as_of)
+    if as_of_date:
+        eff_from = _extract_date_prefix(meta.get("effective_from"))
+        eff_to = _extract_date_prefix(meta.get("effective_to"))
+        exclusive = bool(meta.get("effective_to_exclusive", True))
+        if eff_from and as_of_date < eff_from:return False
+        if eff_to and (as_of_date >= eff_to if exclusive else as_of_date > eff_to):return False
 
     if metadata_filter.doc_groups:
         doc_group = str(meta.get("doc_group") or "")
@@ -108,6 +101,8 @@ def infer_retrieval_filter(
     deprecated thresholds with current rules. When explicit historical dates or
     version-contrast cues appear, archived documents are unlocked alongside current rules.
     """
+    if policy_context is not None:
+        policy_context=PolicyContext.model_validate(policy_context).model_dump(exclude_unset=True)
     # If user explicitly corrects a previous historical year to a current-era year without version comparison,
     # prevent stale historical turns in history from reopening archived documents.
     is_temporal_correction = (
@@ -119,7 +114,9 @@ def infer_retrieval_filter(
     parts = [query]
     if history and not is_temporal_correction:
         for turn in history[-4:]:
-            content = turn.get("content", "") if isinstance(turn, dict) else str(turn)
+            if not isinstance(turn, dict) or turn.get("role") != "user":
+                continue
+            content = turn.get("content", "")
             if content:
                 parts.append(content)
     combined = " ".join(parts)
@@ -152,7 +149,7 @@ def infer_retrieval_filter(
         ctx_as_of = str(policy_context["as_of"])
     return MetadataFilter(
         as_of=ctx_as_of or default_as_of,
-        include_archived=False,
+        include_archived=ctx_as_of is not None,
         doc_groups=doc_groups,
         policy_families=policy_families,
         merchant_types=merchant_types,

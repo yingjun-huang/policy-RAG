@@ -31,6 +31,12 @@ _POLICY_INQUIRY_TERMS = ("规则", "规定", "政策", "条件", "流程", "说�
 _IMPERATIVE_DEMAND_CUES = ("帮我", "我要", "立刻", "马上", "不要跟我解释")
 
 
+_POLICY_EXPLANATION_PREFIX = re.compile(
+    r"(?:(?:咨询|了解|解释|说明|介绍|讲解|解读)(?:一下|下)?"
+    r"(?:关于)?(?:如何|怎么)?|如何|怎么)\s*$"
+)
+
+
 def check_scope_and_actions(query: str) -> tuple[bool, str]:
     """Evaluates whether the query is safe and within policy Q&A scope.
     Returns (is_refused, refusal_message).
@@ -49,12 +55,21 @@ def check_scope_and_actions(query: str) -> tuple[bool, str]:
             "如需查询或办理具体订单业务，请前往商城 App 首页【我的订单】自助办理，或联系人工客服。"
         )
 
-    # 3. Transactional business write operations (unless explicitly inquiring policy)
+    # 3. Allow explicit explanations only for the action they describe.
     is_policy_inquiry = any(term in query for term in _POLICY_INQUIRY_TERMS)
     has_imperative_demand = any(cue in query for cue in _IMPERATIVE_DEMAND_CUES)
     for pattern in _TRANSACTIONAL_INTENT_PATTERNS:
-        if pattern.search(query):
-            if is_policy_inquiry and not has_imperative_demand:
+        for match in pattern.finditer(query):
+            prefix = query[:match.start()]
+            is_explanation = (
+                _POLICY_EXPLANATION_PREFIX.search(prefix) is not None
+                and not any(cue in match.group() for cue in _IMPERATIVE_DEMAND_CUES)
+            )
+            is_action_request = (
+                match.group().startswith(("请", "把", "立即"))
+                or re.search(r"(?:然后|接着|请)\s*$", prefix) is not None
+            )
+            if is_explanation or (is_policy_inquiry and not has_imperative_demand and not is_action_request):
                 continue
             return (
                 True,

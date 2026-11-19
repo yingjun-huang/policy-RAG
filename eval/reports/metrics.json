@@ -1,0 +1,620 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-11-19T06:24:10.317665+00:00",
+  "purpose": "Final resume metrics and compact provenance; no per-turn records or API calls.",
+  "units": "Accuracy, precision, recall, completeness and version rates are percentages; MRR is a 0-1 ratio; CPU latency is milliseconds.",
+  "final_version": {
+    "date": "2026-11-19",
+    "candidate": "candidate_final_02",
+    "generation_model": "deepseek-chat",
+    "primary_judge_model": "deepseek-chat",
+    "cross_model": {
+      "judge_protocol_version": 3,
+      "cross_judge_model": "deepseek-reasoner",
+      "primary_rejudge_model": null,
+      "evaluated_turns": 240,
+      "parse_fallback_count": 0,
+      "comparable_pair_count": 240,
+      "primary_comparison_context_aligned": true,
+      "cross_weighted_accuracy": 82.5,
+      "cross_strict_accuracy": 78.75,
+      "exact_verdict_agreement_pct": 91.25,
+      "within_half_score_agreement_pct": 100.0,
+      "verdict_counts": {
+        "correct": 189,
+        "partial": 18,
+        "incorrect": 33
+      },
+      "exact_verdict_agreement_count": 219,
+      "recorded_returned_calls": 240,
+      "recorded_usage": {
+        "prompt_tokens": 3355025,
+        "completion_tokens": 93108,
+        "total_tokens": 3448133
+      },
+      "requested_model": "deepseek-reasoner",
+      "returned_model": "deepseek-flash",
+      "independent_model_cross_validation": false,
+      "assessment_kind": "Chat/Reasoner接口双模式复核",
+      "completed_at_utc": "2026-11-19T11:23:15.351120+00:00",
+      "metadata_probe_calls": 2,
+      "metadata_probe_total_tokens": 141
+    },
+    "dataset": {
+      "path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\dataset\\jd_eval_final.jsonl",
+      "sha256": "737e5fee4cdfdf5c4d61af0e2dc0a6a4223fc33edbe621032fe197a169205e16",
+      "scenarios": 189,
+      "followups": 51,
+      "turns": 240
+    },
+    "snapshot_fingerprint": "4998b2a0e2230a27cdf4b5eda379da0203bb29b99f0a67990e1a011b2c446c84",
+    "source_changed_during_run": [],
+    "all_primary_verdicts_valid": true,
+    "answers_match_saved_checkpoints": true,
+    "overall": {
+      "attempted": 240,
+      "evaluated": 240,
+      "invalid_judgments": 0,
+      "correct": 205,
+      "partial": 5,
+      "incorrect": 30,
+      "strict_accuracy": 85.42,
+      "weighted_accuracy": 86.46,
+      "action_accuracy": 83.75,
+      "false_refusals": 3,
+      "response_errors": 15
+    },
+    "by_category": {
+      "single_hop": {
+        "attempted": 30,
+        "evaluated": 30,
+        "invalid_judgments": 0,
+        "correct": 27,
+        "partial": 0,
+        "incorrect": 3,
+        "strict_accuracy": 90.0,
+        "weighted_accuracy": 90.0,
+        "action_accuracy": 90.0,
+        "false_refusals": 1,
+        "response_errors": 2
+      },
+      "multi_hop": {
+        "attempted": 35,
+        "evaluated": 35,
+        "invalid_judgments": 0,
+        "correct": 21,
+        "partial": 3,
+        "incorrect": 11,
+        "strict_accuracy": 60.0,
+        "weighted_accuracy": 64.29,
+        "action_accuracy": 60.0,
+        "false_refusals": 1,
+        "response_errors": 5
+      },
+      "table_lookup": {
+        "attempted": 30,
+        "evaluated": 30,
+        "invalid_judgments": 0,
+        "correct": 25,
+        "partial": 0,
+        "incorrect": 5,
+        "strict_accuracy": 83.33,
+        "weighted_accuracy": 83.33,
+        "action_accuracy": 83.33,
+        "false_refusals": 0,
+        "response_errors": 4
+      },
+      "version_contrast": {
+        "attempted": 25,
+        "evaluated": 25,
+        "invalid_judgments": 0,
+        "correct": 23,
+        "partial": 0,
+        "incorrect": 2,
+        "strict_accuracy": 92.0,
+        "weighted_accuracy": 92.0,
+        "action_accuracy": 92.0,
+        "false_refusals": 0,
+        "response_errors": 1
+      },
+      "clarification_needed": {
+        "attempted": 56,
+        "evaluated": 56,
+        "invalid_judgments": 0,
+        "correct": 51,
+        "partial": 2,
+        "incorrect": 3,
+        "strict_accuracy": 91.07,
+        "weighted_accuracy": 92.86,
+        "action_accuracy": 87.5,
+        "false_refusals": 0,
+        "response_errors": 2
+      },
+      "abstain": {
+        "attempted": 10,
+        "evaluated": 10,
+        "invalid_judgments": 0,
+        "correct": 7,
+        "partial": 0,
+        "incorrect": 3,
+        "strict_accuracy": 70.0,
+        "weighted_accuracy": 70.0,
+        "action_accuracy": 70.0,
+        "false_refusals": 1,
+        "response_errors": 0
+      },
+      "known_inapplicability": {
+        "attempted": 3,
+        "evaluated": 3,
+        "invalid_judgments": 0,
+        "correct": 3,
+        "partial": 0,
+        "incorrect": 0,
+        "strict_accuracy": 100.0,
+        "weighted_accuracy": 100.0,
+        "action_accuracy": 33.33,
+        "false_refusals": 0,
+        "response_errors": 0
+      },
+      "refuse": {
+        "attempted": 12,
+        "evaluated": 12,
+        "invalid_judgments": 0,
+        "correct": 12,
+        "partial": 0,
+        "incorrect": 0,
+        "strict_accuracy": 100.0,
+        "weighted_accuracy": 100.0,
+        "action_accuracy": 100.0,
+        "false_refusals": 0,
+        "response_errors": 0
+      },
+      "user_correction": {
+        "attempted": 22,
+        "evaluated": 22,
+        "invalid_judgments": 0,
+        "correct": 21,
+        "partial": 0,
+        "incorrect": 1,
+        "strict_accuracy": 95.45,
+        "weighted_accuracy": 95.45,
+        "action_accuracy": 95.45,
+        "false_refusals": 0,
+        "response_errors": 0
+      },
+      "multi_turn": {
+        "attempted": 17,
+        "evaluated": 17,
+        "invalid_judgments": 0,
+        "correct": 15,
+        "partial": 0,
+        "incorrect": 2,
+        "strict_accuracy": 88.24,
+        "weighted_accuracy": 88.24,
+        "action_accuracy": 88.24,
+        "false_refusals": 0,
+        "response_errors": 1
+      }
+    },
+    "routing": {
+      "evaluated": 132,
+      "matched": 109,
+      "accuracy": 82.58,
+      "by_expected_route": {
+        "single": {
+          "total": 60,
+          "matched": 54,
+          "accuracy": 90.0
+        },
+        "multi": {
+          "total": 60,
+          "matched": 43,
+          "accuracy": 71.67
+        },
+        "refuse": {
+          "total": 12,
+          "matched": 12,
+          "accuracy": 100.0
+        }
+      },
+      "confusion_matrix": {
+        "single": {
+          "single": 54,
+          "refuse": 1,
+          "multi": 5
+        },
+        "multi": {
+          "multi": 43,
+          "single": 16,
+          "refuse": 1
+        },
+        "refuse": {
+          "refuse": 12
+        }
+      }
+    },
+    "calculation": {
+      "target_turns": 47,
+      "attempted": 47,
+      "evaluated": 47,
+      "invalid_judgments": 0,
+      "correct": 38,
+      "partial": 0,
+      "incorrect": 9,
+      "strict_accuracy": 80.85,
+      "weighted_accuracy": 80.85,
+      "action_accuracy": 80.85,
+      "false_refusals": 0,
+      "response_errors": 8,
+      "calculator_used_turns": 32,
+      "calculator_usage_pct": 68.09,
+      "executed_expressions": 70,
+      "arithmetic_consistency_passed": 70,
+      "metric_scope": "Correctness is the final answer grade on the fixed 47 calculation targets; execution consistency does not validate policy formula selection"
+    },
+    "adaptive_retrieval": {
+      "hop_distribution": {
+        "1": 217,
+        "0": 17,
+        "2": 6
+      },
+      "multi_turns": 61,
+      "multi_first_round_sufficient": 46,
+      "two_round_gold_turns": 5,
+      "first_complete": 4,
+      "final_complete": 5,
+      "first_complete_pct": 80.0,
+      "final_complete_pct": 100.0,
+      "newly_completed": 1,
+      "metric_scope": "All accumulated gold documents, not Top-5 and not an answer-quality control"
+    },
+    "reliability": {
+      "response_errors": {
+        "generation_invalid_response": 15
+      },
+      "actions": {
+        "answer": 156,
+        "abstain": 28,
+        "refuse": 17,
+        "clarify": 39
+      },
+      "checked_turns": 162,
+      "correction_triggered_turns": 7
+    },
+    "api_usage": {
+      "returned_generate_calls": {
+        "pipeline": 815,
+        "primary_judge": 240
+      },
+      "reported_total_tokens": {
+        "pipeline": 1335149,
+        "primary_judge": 3360741
+      },
+      "failed_generate_calls": {},
+      "note": "Provider usage for this invocation; transport retries and supplier billing may differ. Journal retains stage responses."
+    },
+    "requested_generation_model": "deepseek-chat",
+    "requested_primary_judge_model": "deepseek-chat",
+    "returned_generation_model": "deepseek-flash",
+    "returned_primary_judge_model": "deepseek-flash",
+    "backend_identity_note": "240 primary and 240 review response model fields; two tiny current-interface probes show Chat without reasoning_content and Reasoner with reasoning_content. Full reasoning traces from the benchmark were not retained by the original provider."
+  },
+  "current_version_offline_retrieval": {
+    "source": "current_retrieval",
+    "measured_at_utc": "2026-11-19T05:04:53.456595+00:00",
+    "api_calls": 0,
+    "documents": 32,
+    "chunks": 114,
+    "graph_nodes": 32,
+    "graph_edges": 26,
+    "samples": 175,
+    "complex_samples": 112,
+    "embedding_model": "BAAI/bge-small-zh-v1.5",
+    "embedding_revision": "7999e1d3359715c523056ef9478215996d62a620",
+    "reranker_model": "BAAI/bge-reranker-base",
+    "reranker_revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+    "onnx_int8_sha256": "3e25bab2c9f1388933a5e3e857f480979aa987647d90931805415139ed3de96b",
+    "index_text_format": "[title - section] content, matched to PolicyContainer.init_vector_index",
+    "schemes": {
+      "1. BM25 (无版本过滤)": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 74.29,
+        "recall@3": 82.48,
+        "recall@5": 88.86,
+        "complete@5": 81.14,
+        "complex_complete@5": 74.11,
+        "hit@1": 74.29,
+        "hit@3": 91.43,
+        "mrr": 0.8413,
+        "version_isolation_rate": 76.87,
+        "version_contrast_both_rate": 85.71,
+        "version_match_accuracy": 78.29
+      },
+      "2. Vector (无版本过滤)": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 81.14,
+        "recall@3": 91.52,
+        "recall@5": 95.05,
+        "complete@5": 90.29,
+        "complex_complete@5": 85.71,
+        "hit@1": 81.14,
+        "hit@3": 97.71,
+        "mrr": 0.8964,
+        "version_isolation_rate": 68.71,
+        "version_contrast_both_rate": 100.0,
+        "version_match_accuracy": 73.71
+      },
+      "3. Hybrid RRF (无版本过滤)": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 88.0,
+        "recall@3": 91.81,
+        "recall@5": 96.0,
+        "complete@5": 92.0,
+        "complex_complete@5": 88.39,
+        "hit@1": 88.0,
+        "hit@3": 98.86,
+        "mrr": 0.9345,
+        "version_isolation_rate": 70.75,
+        "version_contrast_both_rate": 100.0,
+        "version_match_accuracy": 75.43
+      },
+      "4. Hybrid + MetadataFilter": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 88.57,
+        "recall@3": 92.38,
+        "recall@5": 96.0,
+        "complete@5": 92.0,
+        "complex_complete@5": 88.39,
+        "hit@1": 88.57,
+        "hit@3": 98.86,
+        "mrr": 0.9373,
+        "version_isolation_rate": 99.32,
+        "version_contrast_both_rate": 100.0,
+        "version_match_accuracy": 99.43
+      },
+      "5. Hybrid + MetadataFilter + Rerank": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 89.71,
+        "recall@3": 92.48,
+        "recall@5": 96.0,
+        "complete@5": 92.57,
+        "complex_complete@5": 90.18,
+        "hit@1": 89.71,
+        "hit@3": 97.71,
+        "mrr": 0.9399,
+        "version_isolation_rate": 99.32,
+        "version_contrast_both_rate": 100.0,
+        "version_match_accuracy": 99.43
+      },
+      "6. Hybrid + ClauseGraph (1-Hop) + MetadataFilter + Rerank": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 89.71,
+        "recall@3": 92.1,
+        "recall@5": 95.81,
+        "complete@5": 93.14,
+        "complex_complete@5": 91.07,
+        "hit@1": 89.71,
+        "hit@3": 97.14,
+        "mrr": 0.938,
+        "version_isolation_rate": 99.32,
+        "version_contrast_both_rate": 100.0,
+        "version_match_accuracy": 99.43
+      },
+      "6b. Hybrid + ClauseGraph (YAML, CE-Gated) + MetadataFilter + Rerank": {
+        "samples": 175,
+        "complex_samples": 112,
+        "precision@1": 89.71,
+        "recall@3": 92.95,
+        "recall@5": 97.52,
+        "complete@5": 95.43,
+        "complex_complete@5": 93.75,
+        "hit@1": 89.71,
+        "hit@3": 97.71,
+        "mrr": 0.9391,
+        "version_isolation_rate": 99.32,
+        "version_contrast_both_rate": 100.0,
+        "version_match_accuracy": 99.43
+      }
+    },
+    "comparisons": {
+      "bm25_to_full_precision_at_1_pp": 15.42,
+      "bm25_to_full_recall_at_5_pp": 8.66,
+      "no_graph_to_full_complex_complete_at_5_pp": 3.57
+    }
+  },
+  "historical_20261118_not_current": {
+    "source": "historical_report",
+    "scenarios": 189,
+    "turns": 240,
+    "overall": {
+      "attempted": 240,
+      "evaluated": 240,
+      "invalid_judgments": 0,
+      "correct": 222,
+      "partial": 13,
+      "incorrect": 5,
+      "strict_accuracy": 92.5,
+      "weighted_accuracy": 95.21,
+      "action_accuracy": 90.83,
+      "false_refusals": 0,
+      "response_errors": 0
+    },
+    "routing": {
+      "evaluated": 132,
+      "matched": 83,
+      "accuracy": 62.88,
+      "by_expected_route": {
+        "multi": {
+          "total": 60,
+          "matched": 60,
+          "accuracy": 100.0
+        },
+        "refuse": {
+          "total": 12,
+          "matched": 12,
+          "accuracy": 100.0
+        },
+        "single": {
+          "total": 60,
+          "matched": 11,
+          "accuracy": 18.33
+        }
+      },
+      "predicted_distribution_pct": {
+        "multi": 73.33,
+        "refuse": 5.83,
+        "single": 20.83
+      }
+    },
+    "cross_model": {
+      "cross_judge_model": "deepseek-reasoner",
+      "attempted_turns": 240,
+      "evaluated_turns": 240,
+      "parse_fallback_count": 0,
+      "comparable_pair_count": 240,
+      "cross_weighted_accuracy": 90.42,
+      "cross_strict_accuracy": 84.58,
+      "exact_verdict_agreement_pct": 90.83,
+      "within_half_score_agreement_pct": 99.58
+    },
+    "note": "Retained for history only. Do not merge old cross-judge scores or old answer accuracy into the current version."
+  },
+  "optional_independent_cpu_rerank_not_core_resume": {
+    "source": "cpu_rerank",
+    "scope": "isolated fixed eight-candidate CPU rerank, excludes recall/graph/LLM",
+    "measured_at_utc": "2026-11-19T03:10:06.245247+00:00",
+    "api_calls": 0,
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpus": 20,
+    "torch_threads": 14,
+    "ort_intra_op_threads": 0,
+    "threads_note": "Library defaults, current workstation load; not controlled dedicated hardware",
+    "variants": [
+      {
+        "runtime": "pytorch_fp32",
+        "samples": 175,
+        "candidate_count": 8,
+        "top_k": 5,
+        "p50_ms": 538.87,
+        "p95_ms": 1161.53,
+        "precision@1": 90.29,
+        "recall@5": 94.19,
+        "complete@5": 89.14,
+        "mrr": 0.941
+      },
+      {
+        "runtime": "onnx_int8",
+        "samples": 175,
+        "candidate_count": 8,
+        "top_k": 5,
+        "p50_ms": 214.84,
+        "p95_ms": 1261.75,
+        "precision@1": 89.14,
+        "recall@5": 93.71,
+        "complete@5": 88.0,
+        "mrr": 0.9352
+      }
+    ],
+    "p50_reduction_percent": 60.13,
+    "p95_increase_percent": 8.63,
+    "note": "Fixed 8 candidates, 175 queries; excludes recall, graph and LLM. P95 and P@1 worsen; does not establish end-to-end acceleration or RAM savings."
+  },
+  "definitions_and_reporting_limits": {
+    "answer_scoring": "strict=correct/N; weighted=(correct+0.5*partial)/N. Preserve all valid incorrect/partial results, including 15 output-protocol failures.",
+    "retrieval": "Logical-document deduplication; P@1 is relevant first-document rate; Recall@5 is mean per-query relevant-document coverage in Top-5; Complete@5 is the fraction covering all gold documents in Top-5; complex subset N=112.",
+    "routing": "132 labeled first questions: single_hop/table_lookup -> single; multi_hop/version_contrast -> multi; transaction-boundary refusal -> refuse. This measures strategy-label agreement, not answer quality or the number of retrieval rounds.",
+    "version": "Isolation/matching metrics describe retrieval metadata and include legitimate historical queries. They do not establish zero outdated citations or answer faithfulness.",
+    "calculator": "70/70 arithmetic consistency covers only executed expressions across the 240 turns; fixed calculation-target answer accuracy is 38/47. Expression correctness does not establish formula selection correctness.",
+    "adaptive": "Only 5 gold-labeled actual two-round cases: complete accumulated evidence 4/5 -> 5/5. Small sample, not Complete@5, not a controlled answer improvement.",
+    "scope": "Self-built functional dataset; no full-system answer-quality comparison against fixed single-round RAG. Chat/Reasoner requested aliases currently share Flash backend; supplementary dual-mode review does not establish independent-model or human agreement.",
+    "recommended_resume": [
+      "Hybrid metadata version matching baseline",
+      "BM25 vs full P@1",
+      "no-graph vs full complex Complete@5",
+      "final route accuracy",
+      "primary weighted answer accuracy and supplemental interface review with denominators"
+    ],
+    "not_core_resume": [
+      "old cross-model score as current",
+      "citation-ID legality as faithfulness",
+      "70/70 execution as 100% calculation accuracy",
+      "5-case coverage as system-wide adaptive gain",
+      "CPU P50 without P95/quality tradeoff",
+      "correction trigger counts as hallucination reduction",
+      "Chat/Reasoner interface review as independent-model cross-validation"
+    ]
+  },
+  "sources": {
+    "final_report": {
+      "original_path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\report_20261119_053743_398780.json",
+      "sha256": "0e3dd8e1059cc43f08af4a718cd500d3b7d5ce2d78514b4f78d982e619e58067",
+      "original_relative_path": "final_20261119/report_20261119_053743_398780.json",
+      "proposed_archive_relative_path": "archive/final_20261119/report_20261119_053743_398780.json"
+    },
+    "final_verification": {
+      "original_path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\VERIFIED_FINAL_RESULTS.json",
+      "sha256": "34fb40925e096902d71798581300718a14768fea2d60d840e395a3dc0366f898",
+      "original_relative_path": "final_20261119/VERIFIED_FINAL_RESULTS.json",
+      "proposed_archive_relative_path": "archive/final_20261119/VERIFIED_FINAL_RESULTS.json"
+    },
+    "final_snapshot": {
+      "original_path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\snapshot.json",
+      "sha256": "bbe3be85aa777489a32c4e346ff3a567304d3f648b94e24867a282d1ca884f68",
+      "original_relative_path": "final_20261119/snapshot.json",
+      "proposed_archive_relative_path": "archive/final_20261119/snapshot.json"
+    },
+    "current_retrieval": {
+      "original_path": "D:\\PythonProject\\Application\\rag-review-20261119\\closure_retrieval_02.json",
+      "sha256": "4a2451f623f72bd2439bea0207ffc82b1179f22935edba9d15c823931b83dc03"
+    },
+    "historical_report": {
+      "original_path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_frozen_20261118\\report_20261118_124939_752040.json",
+      "sha256": "d9c07a48a1036961616657f84e1db37f92fba1dde145d79b2a49da85eeacca78",
+      "original_relative_path": "final_frozen_20261118/report_20261118_124939_752040.json",
+      "proposed_archive_relative_path": "archive/final_frozen_20261118/report_20261118_124939_752040.json"
+    },
+    "cpu_rerank": {
+      "original_path": "D:\\PythonProject\\Application\\rag-review-20261119\\offline_cpu_rerank_app_matched.json",
+      "sha256": "d8728241549bf05fc459a319e2001f9b27c045931d13343d3d2ed8a53ee33ae1"
+    },
+    "final_supplemental_review": {
+      "original_path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\cross_deepseek_reasoner_20261119\\report.json",
+      "original_relative_path": "final_20261119/cross_deepseek_reasoner_20261119/report.json",
+      "sha256": "54ffb8c821e656d6c01dc9aa913d64f3bc19fbe1f866d33362a582a85dc1b3de"
+    },
+    "review_verification": {
+      "original_path": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\cross_deepseek_reasoner_20261119\\VERIFICATION.json",
+      "sha256": "6565b06a8e27a0cee56a0b5ba17ce1ed368655fc1cb8feedf9cbb0a5181030f0"
+    }
+  },
+  "original_directory_inventory": {
+    "final_20261119": {
+      "files": 492,
+      "bytes": 20607840,
+      "tree_sha256": "1254aa99c636639cb59bfa03f1b7c4ea180e59c12b5dfe775b067988d8543b8a"
+    },
+    "final_frozen_20261118": {
+      "files": 739,
+      "bytes": 31318101,
+      "tree_sha256": "1cdab77e396dcba0a67869e8430e4fb8e70326a9a933e116fc6731fac3b3c0eb"
+    },
+    "github_baseline_and_prior_experiments_20261116": {
+      "files": 10,
+      "bytes": 1077537,
+      "tree_sha256": "46f5075beaef38c7f13d1bb75bab886a1d8138c526dfde3cd2b0194e76fac5c8"
+    }
+  },
+  "archive_status": "Historical source paths record original locations; directory inventory is the pre-archive historical inventory. This wrapup does not move or delete files. Current final evidence remains under final_20261119.",
+  "publication_update": {
+    "kind": "documentation-only after supplemental review",
+    "prepared_at_utc": "2026-11-19T11:26:44.347310+00:00",
+    "primary_frozen_report_not_modified": true,
+    "no_application_code_changes": true
+  }
+}

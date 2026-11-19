@@ -1,0 +1,40 @@
+{
+  "status": "verified",
+  "verified_at_utc": "2026-11-19T11:26:44.335756+00:00",
+  "turns": 240,
+  "unique_pairs": 240,
+  "all_cross_verdicts_valid": true,
+  "all_grades_match_saved_raw_responses": true,
+  "primary_answers_and_grades_unchanged": true,
+  "all_judge_context_hashes_match_primary": true,
+  "verdict_counts": {
+    "correct": 189,
+    "partial": 18,
+    "incorrect": 33
+  },
+  "cross_strict_accuracy": 78.75,
+  "cross_weighted_accuracy": 82.5,
+  "exact_verdict_agreement_count": 219,
+  "exact_verdict_agreement_pct": 91.25,
+  "cross_report_sha256": "54ffb8c821e656d6c01dc9aa913d64f3bc19fbe1f866d33362a582a85dc1b3de",
+  "predictions_sha256": "2fc4c1a294f7479007253fd0a551d7f16784e36f316314823b259179b7325fa7",
+  "requested_primary_model": "deepseek-chat",
+  "requested_review_model": "deepseek-reasoner",
+  "returned_primary_models": {
+    "deepseek-flash": 240
+  },
+  "returned_review_models": {
+    "deepseek-flash": 240
+  },
+  "independent_model_cross_validation": false,
+  "assessment_kind": "Chat/Reasoner legacy-interface dual-mode supplementary review on the same Flash backend",
+  "backend_identity_evidence": "240 primary and 240 review response model fields; two tiny current-interface probes show Chat without reasoning_content and Reasoner with reasoning_content. Full reasoning traces from the benchmark were not retained by the original provider.",
+  "metadata_probe_calls": 2,
+  "metadata_probe_total_tokens": 141,
+  "benchmark_returned_calls": 240,
+  "benchmark_usage": {
+    "prompt_tokens": 3355025,
+    "completion_tokens": 93108,
+    "total_tokens": 3448133
+  }
+}

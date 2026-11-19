@@ -155,7 +155,13 @@ def test_infer_retrieval_filter_version_isolation_and_correction():
 
     # Normal active shipping query must NOT trigger archived versions
     f_ship = infer_retrieval_filter("普通用户上海70元3kg自营中小件运费是多少？", policy_context={"as_of": "2024-06-01"})
-    assert f_ship.include_archived is False
+    # A supplied date selects the effective version even when archives are eligible.
+    old = RetrievedChunk(document_id="old", chunk_id="old", title="旧版", content="旧门槛",
+                         metadata={"document_status":"archived","effective_to":"2024-01-01"})
+    current = RetrievedChunk(document_id="current", chunk_id="current", title="新版", content="新门槛",
+                             metadata={"document_status":"current","effective_from":"2024-01-01"})
+    assert not matches_metadata_filter(old, f_ship)
+    assert matches_metadata_filter(current, f_ship)
     assert f_ship.as_of == "2024-06-01"
 
     # Explicit version contrast unlocks archived rules

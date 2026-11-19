@@ -79,7 +79,8 @@ class PolicyContainer:
             )
         else:
             raw_fake = FakeLLMProvider(
-                default_response="商城政策规定：普通商品支持7天无理由退换货，商品需保持完好不影响二次销售。"
+                canned={"已有政策证据":'{"sufficient":true,"missing_type":"none"}'},
+                default_response='{"action":"answer","answer":"离线示例：普通商品需满足七天内及完好条件，具体适用范围以检索条款为准。","citation_chunk_ids":[]}'
             )
             self.llm = CachedLLMProvider(
                 raw_fake,
@@ -289,6 +290,7 @@ class PolicyQAService:
 
         return ChatResponse(
             answer=answer_text,
+            calculation_trace=final_state.get("calculation_trace", []),
             action=action,
             strategy=strategy,
             user_query=query,
@@ -302,6 +304,7 @@ class PolicyQAService:
             exit_reason=exit_reason,
             evidence=final_state.get("evidence", []),
             citations=final_state.get("citations", []),
+            missing_type=final_state.get("missing_type", "none"),
             missing_slots=final_state.get("missing_slots", []),
             known_slots=final_state.get("known_slots", {}),
             clarification_questions=final_state.get("clarification_questions", []),
@@ -310,6 +313,7 @@ class PolicyQAService:
             faithfulness_gate_reason=str(final_state.get("faithfulness_gate_reason", "")),
             faithfulness_triggered=bool(final_state.get("faithfulness_triggered", False)),
             pre_correction_answer=final_state.get("pre_correction_answer"),
+            pre_correction_action=final_state.get("pre_correction_action"),
             error=final_state.get("error"),
             latency=latency,
         )

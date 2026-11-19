@@ -366,6 +366,7 @@ def validate_assets(
                 doc_id = vd["applicable_doc_id"]
                 check(doc_id in VERSION_CHAINS.get(vd["policy_family"], ()), f"{row['id']}: unexpected family/doc pair")
                 m = meta.get(doc_id, {})
+                check(vd.get("event_type") == m.get("applicability_event"), f"{row['id']}: wrong/missing applicability event type")
                 at = _to_shanghai_naive(vd["event_at"])
                 start = datetime.fromisoformat(m["effective_from"])
                 end = datetime.fromisoformat(m["effective_to"]) if m.get("effective_to") else None

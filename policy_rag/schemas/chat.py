@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from policy_rag.schemas.retrieval import (
+    PolicyContext,
     Citation,
     ExitReason,
     GradeStatus,
@@ -18,15 +19,25 @@ from policy_rag.schemas.retrieval import (
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
-    content: str
+    content: str = Field(min_length=1,max_length=10000)
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000, description="用户提问内容")
     session_id: str | None = Field(default=None, max_length=64, description="会话ID")
     user_id: str = Field(default="anonymous", min_length=1, max_length=64, description="用户标识")
-    history: list[ChatMessage] = Field(default_factory=list, description="对话历史")
+    history: list[ChatMessage] = Field(default_factory=list,max_length=12, description="对话历史")
     policy_context: dict[str, Any] | None = Field(default=None, description="政策版本上下文（如 as_of）")
+
+    @field_validator("message",mode="before")
+    @classmethod
+    def strip_message(cls,value):
+        return value.strip() if isinstance(value,str) else value
+
+    @field_validator("policy_context")
+    @classmethod
+    def validate_context(cls,value):
+        return None if value is None else PolicyContext.model_validate(value).model_dump(exclude_unset=True)
 
 
 class LatencyBreakdown(BaseModel):
@@ -41,6 +52,7 @@ class LatencyBreakdown(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+    calculation_trace: list[dict[str, Any]] = Field(default_factory=list)
     action: ResponseAction = ResponseAction.ANSWER
     strategy: RetrievalStrategy = RetrievalStrategy.SINGLE
     user_query: str
@@ -51,6 +63,7 @@ class ChatResponse(BaseModel):
     exit_reason: ExitReason = ExitReason.SINGLE_HOP_DONE
     evidence: list[RetrievedChunk] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
+    missing_type: str = "none"
     missing_slots: list[str] = Field(default_factory=list)
     known_slots: dict[str, Any] = Field(default_factory=dict)
     clarification_questions: list[str] = Field(default_factory=list)
@@ -59,6 +72,7 @@ class ChatResponse(BaseModel):
     faithfulness_gate_reason: str = ""
     faithfulness_triggered: bool = False
     pre_correction_answer: str | None = None
+    pre_correction_action: ResponseAction | None = None
     error: str | None = None
     latency: LatencyBreakdown = Field(default_factory=LatencyBreakdown)
 

@@ -6,7 +6,9 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Literal
+
+from policy_rag.agents.contracts import AnswerPayload as _AnswerPayload
 
 from policy_rag.agents.loop import (
     _clean_json_str,
@@ -24,6 +26,7 @@ from policy_rag.agents.prompts import (
 )
 from policy_rag.agents.router import route_query
 from policy_rag.agents.state import AgentState
+from policy_rag.calculation import CalculationRequest, resolve_calculations
 from policy_rag.guardrails.boundary import check_scope_and_actions
 from policy_rag.guardrails.injection import detect_prompt_injection
 from policy_rag.providers.base import LLMProvider
@@ -50,39 +53,13 @@ def _compose_retrieval_query(query: str, history: list[dict[str, str]] | None) -
         str(t.get("content", "")).strip()
         for t in history
         if isinstance(t, dict) and t.get("role") == "user" and str(t.get("content", "")).strip()
-    ][-2:]
+    ][-3:]
     if not prior_user_turns:
         return query
     return " ".join([*prior_user_turns, query]).strip()
 
 
-def _infer_abstain_fallback(query: str, evidence: list[Any]) -> bool:
-    """Deterministically detects out-of-corpus or explicitly uncovered clause queries when JSON action is absent."""
-    if not evidence:
-        return True
-    if any(k in query for k in ("白条", "E卡过期", "年卡官方售价", "误工费")):
-        return True
-    ev_text = "\n".join(str(getattr(c, "content", "")) for c in evidence)
-    if "海外直邮" in query and ("运费" in query or "税" in query) and "海外直邮" in ev_text:
-        return True
-    if "秒送" in query and "超时" in query:
-        return True
-    if ("2022年" in query or "2023年10月" in query) and ("西藏" in query or "新疆" in query) and "偏远附加费" in query:
-        return True
-    if "嵌入式洗碗机" in query and "折旧率" in query:
-        return True
-    if "独立显卡" in query and ("没有写出" in query or "未明示" in query):
-        return True
-    if ("没单标价格" in query or "未明示价格" in query) and "赠品" in query and "固定" in query:
-        return True
-    if "没有“假一赔十”" in query and "1000元保底" in query:
-        return True
-    if ("POP店铺" in query or "大件专送" in query) and ("59元" in query or "5kg" in query) and "是不是" in query:
-        return True
-    return False
-
-
-def _map_citations(cited_chunk_ids: Any, evidence: list[Any], *, fallback_limit: int = 2) -> list[Citation]:
+def _map_citations(cited_chunk_ids: Any, evidence: list[Any]) -> list[Citation]:
     chunk_map = {c.chunk_id: c for c in evidence}
     citations: list[Citation] = []
     seen: set[str] = set()
@@ -100,16 +77,6 @@ def _map_citations(cited_chunk_ids: Any, evidence: list[Any], *, fallback_limit:
                         section=c.section,
                     )
                 )
-    if not citations and evidence:
-        for c in evidence[:fallback_limit]:
-            citations.append(
-                Citation(
-                    document_id=c.document_id,
-                    title=c.title,
-                    chunk_id=c.chunk_id,
-                    section=c.section,
-                )
-            )
     return citations
 
 
@@ -172,92 +139,23 @@ async def router_node(
 
 
 async def retrieve_single_node(
-    state: AgentState,
-    *,
-    retriever: HybridRetriever,
-    reranker: DocumentReranker,
-    top_k: int = 3,
-    parent_expansion: bool = True,
-    max_parent_chars: int = 1500,
-    max_context_chars: int = 4500,
-    default_as_of: str = "2024-06-01T12:00:00+08:00",
+    state: AgentState, *, retriever: HybridRetriever, reranker: DocumentReranker, llm: LLMProvider,
+    top_k: int = 3, parent_expansion: bool = True, max_parent_chars: int = 1500,
+    max_context_chars: int = 4500, default_as_of: str = "2024-06-01T12:00:00+08:00",
 ) -> dict[str, Any]:
-    """Executes single-hop hybrid retrieval with unified MetadataFilter and parent expansion."""
-    query = state.get("user_query", "")
-    history = state.get("conversation_history")
-    search_query = _compose_retrieval_query(query, history)
-    metadata_filter = state.get("metadata_filter") or infer_retrieval_filter(
-        query,
-        default_as_of=default_as_of,
-        policy_context=state.get("policy_context"),
-        history=history,
-    )
-
-    t_ret = time.perf_counter()
-    raw_candidates = await retriever.retrieve(
-        search_query,
-        top_k=top_k * 2,
-        metadata_filter=metadata_filter,
-    )
-    retrieval_ms = round((time.perf_counter() - t_ret) * 1000, 2)
-
-    t_rerank = time.perf_counter()
-    reranked = await reranker.rerank(search_query, raw_candidates, top_k=top_k)
-    rerank_ms = round((time.perf_counter() - t_rerank) * 1000, 2)
-
-    evidence = expand_parent_contexts(
-        reranked,
-        enabled=parent_expansion,
-        max_parent_chars=max_parent_chars,
-        max_total_chars=max_context_chars,
-    )
-
-    if not evidence:
-        hop_trace = HopTrace(
-            hop_index=1,
-            query=search_query,
-            rewritten_queries=[search_query],
-            retrieved_chunk_ids=[],
-            new_chunk_ids=[],
-            grade_status=GradeStatus.INSUFFICIENT,
-            missing_aspect="未检索到适用的政策条款",
-            rationale="Single-hop filtered retrieval returned no matching policy chunks",
-        )
-        return {
-            "evidence": [],
-            "retrieved_chunks": [],
-            "hop_count": 1,
-            "hop_traces": [hop_trace],
-            "final_grade_status": GradeStatus.INSUFFICIENT,
-            "exit_reason": ExitReason.NO_EVIDENCE,
-            "action": ResponseAction.ABSTAIN,
-            "missing_aspect": "未检索到适用的政策条款",
-            "retrieval_ms": retrieval_ms,
-            "rerank_ms": rerank_ms,
-        }
-
-    hop_trace = HopTrace(
-        hop_index=1,
-        query=search_query,
-        rewritten_queries=[search_query],
-        retrieved_chunk_ids=[c.chunk_id for c in evidence],
-        new_chunk_ids=[c.chunk_id for c in evidence],
-        grade_status=GradeStatus.SUFFICIENT,
-        missing_aspect="",
-        rationale="Single-hop filtered hybrid retrieval, rerank, and parent expansion executed",
-    )
-
-    return {
-        "evidence": evidence,
-        "retrieved_chunks": evidence,
-        "hop_count": 1,
-        "hop_traces": [hop_trace],
-        "final_grade_status": GradeStatus.SUFFICIENT,
-        "exit_reason": ExitReason.SINGLE_HOP_DONE,
-        "action": ResponseAction.ANSWER,
-        "retrieval_ms": retrieval_ms,
-        "rerank_ms": rerank_ms,
-    }
+    """Reuse evidence grading with a one-round retrieval budget."""
+    query=state.get("user_query","")
+    history=state.get("conversation_history")
+    search_query=_compose_retrieval_query(query,history)
+    metadata_filter=state.get("metadata_filter") or infer_retrieval_filter(query,
+        default_as_of=default_as_of,policy_context=state.get("policy_context"),history=history)
+    result=await run_self_rag_loop(query=search_query,retrieval_query=search_query,
+        retriever=retriever,reranker=reranker,llm=llm,max_hops=1,top_k=top_k,
+        metadata_filter=metadata_filter,parent_expansion=parent_expansion,
+        max_parent_chars=max_parent_chars,max_context_chars=max_context_chars)
+    if result["exit_reason"]==ExitReason.SUFFICIENT_EVIDENCE:
+        result["exit_reason"]=ExitReason.SINGLE_HOP_DONE
+    return result
 
 
 async def self_rag_node(
@@ -284,7 +182,7 @@ async def self_rag_node(
         history=history,
     )
     return await run_self_rag_loop(
-        query=query,
+        query=search_query,
         retrieval_query=search_query,
         retriever=retriever,
         reranker=reranker,
@@ -307,6 +205,17 @@ async def generate_node(state: AgentState, *, llm: LLMProvider) -> dict[str, Any
     strategy = state.get("strategy", RetrievalStrategy.SINGLE)
     evidence = state.get("evidence", [])
     history = state.get("conversation_history") or []
+
+    if state.get("action") == ResponseAction.CLARIFY and state.get("missing_type") in {"user_facts","both"}:
+        questions=state.get("clarification_questions",[])
+        return {"final_answer":"为判断适用条款，请补充："+"；".join(questions),
+                "action":ResponseAction.CLARIFY,"exit_reason":ExitReason.CLARIFICATION_NEEDED,
+                "missing_slots":state.get("missing_slots",[]),"clarification_questions":questions,
+                "citations":[],"calculation_trace":[]}
+    if state.get("error") == "grader_unavailable":
+        return {"final_answer":"证据评审暂不可用，暂时无法给出可靠结论，请稍后重试。",
+                "action":ResponseAction.ABSTAIN,"exit_reason":ExitReason.GRADER_UNAVAILABLE,
+                "citations":[],"calculation_trace":[]}
 
     if strategy == RetrievalStrategy.DIRECT:
         messages = [
@@ -352,10 +261,10 @@ async def generate_node(state: AgentState, *, llm: LLMProvider) -> dict[str, Any
     history_block = "\n".join(history_lines) if history_lines else "无"
 
     metadata_filter = state.get("metadata_filter")
-    if metadata_filter and getattr(metadata_filter, "include_archived", False):
+    if metadata_filter and getattr(metadata_filter, "as_of", None):
+        as_of_note = f"适用版本参考时间 {metadata_filter.as_of}，仅采用该日期生效的条款"
+    elif metadata_filter and getattr(metadata_filter, "include_archived", False):
         as_of_note = "跨版本对比/历史口径（包含归档旧版与现行新版，请严格区分各自适用时间点，不可混用门槛）"
-    elif metadata_filter and getattr(metadata_filter, "as_of", None):
-        as_of_note = f"现行版本参考时间 {metadata_filter.as_of}"
     else:
         as_of_note = "现行有效版本"
 
@@ -374,35 +283,35 @@ async def generate_node(state: AgentState, *, llm: LLMProvider) -> dict[str, Any
     ]
 
     t_llm = time.perf_counter()
-    resp = await llm.generate(messages, temperature=0.2)
-    gen_ms = (time.perf_counter() - t_llm) * 1000
-    raw_content = resp.content.strip()
-
-    answer = raw_content
-    cited_chunk_ids: list[str] = []
-    action = ResponseAction.ANSWER
-    missing_slots: list[str] = []
-    clarification_questions: list[str] = []
+    gen_ms = 0.0
     try:
-        data = json.loads(_clean_json_str(raw_content))
-        answer = str(data.get("answer") or raw_content)
-        cited_chunk_ids = data.get("citation_chunk_ids", [])
-        raw_action = str(data.get("action") or "answer").strip().lower()
-        if raw_action in {"answer", "clarify", "abstain"}:
-            action = ResponseAction(raw_action)
-        missing_slots = [str(s) for s in (data.get("missing_slots") or []) if str(s).strip()]
-        clarification_questions = [
-            str(q) for q in (data.get("clarification_questions") or []) if str(q).strip()
-        ]
-    except Exception:
-        answer = raw_content
-        cited_chunk_ids = [c.chunk_id for c in evidence]
-        if _infer_abstain_fallback(query, evidence):
-            action = ResponseAction.ABSTAIN
+        resp = await llm.generate(messages, temperature=0.2, response_format={"type":"json_object"})
+        gen_ms = (time.perf_counter() - t_llm) * 1000
+        raw_content = resp.content.strip()
+        data = _AnswerPayload.model_validate(json.loads(_clean_json_str(raw_content)))
+        answer, calculation_trace = resolve_calculations(data.answer.strip(), data.calculations, evidence)
+        if not answer:
+            raise ValueError("Empty model answer")
+        action = ResponseAction(data.action)
+        cited_chunk_ids = list(dict.fromkeys(data.citation_chunk_ids + [cid for calc in data.calculations for cid in calc.evidence_chunk_ids]))
+        missing_slots = data.missing_slots if action == ResponseAction.CLARIFY else []
+        clarification_questions = data.clarification_questions if action == ResponseAction.CLARIFY else []
+    except Exception as exc:
+        gen_ms = (time.perf_counter() - t_llm) * 1000
+        logger.warning("Answer response unavailable: %s", exc)
+        return {
+            "final_answer": "本次回答生成异常，暂时无法给出可靠结论，请稍后重试。",
+            "action": ResponseAction.ABSTAIN,
+            "exit_reason": ExitReason.ABSTAINED,
+            "citations": [], "missing_slots": [], "clarification_questions": [],
+            "error": "generation_invalid_response",
+            "llm_ms": round(float(state.get("llm_ms", 0.0)) + gen_ms, 2),
+        }
 
     citations = _map_citations(cited_chunk_ids, evidence)
     result: dict[str, Any] = {
         "final_answer": answer,
+        "calculation_trace": calculation_trace,
         "citations": citations,
         "action": action,
         "missing_slots": missing_slots,
@@ -421,14 +330,16 @@ async def refuse_node(state: AgentState) -> dict[str, Any]:
     return {
         "refused": True,
         "action": ResponseAction.REFUSE,
+        "final_answer": state.get("final_answer") or "本系统仅提供商城政策咨询，无法查询或办理具体订单业务。请前往商城 App 的【我的订单】或联系人工客服。",
         "exit_reason": ExitReason.GUARDRAIL_REFUSED,
         "final_grade_status": GradeStatus.SUFFICIENT,
     }
 
 
 _HIGH_RISK_FACT_RE = re.compile(
-    r"\d+(?:\.\d+)?\s*(?:元|%|％|折|小时|kg|千克|克|cm|厘米|倍|京豆|张)"
-    r"|(?:20\d{2}年|\d{4}-\d{2}-\d{2}|180天|365天)"
+    r"\d+(?:\.\d+)?\s*(?:元|%|％|折|秒|分钟|小时|个?工作日|个?自然日|天|日|周|个?月|年|kg|千克|克|cm|厘米|倍|京豆|张)"
+    r"|[零〇一二两三四五六七八九十百千万]+(?:秒|分钟|小时|个?工作日|个?自然日|天|日|周|个?月|年)"
+    r"|(?:20\d{2}年|\d{4}-\d{2}-\d{2})"
 )
 
 
@@ -436,6 +347,9 @@ def should_run_faithfulness(state: AgentState) -> tuple[bool, str]:
     """Determines whether Faithfulness LLM audit is warranted under risk-gated policy."""
     if state.get("refused") or state.get("strategy") == RetrievalStrategy.DIRECT:
         return False, "skipped:non_retrieval"
+
+    if state.get("error"):
+        return False, "skipped:generation_error"
 
     if not state.get("evidence"):
         return False, "skipped:no_evidence"
@@ -471,6 +385,13 @@ async def faithfulness_node(
             "faithfulness_gate_reason": "skipped:non_retrieval",
         }
 
+    if state.get("error"):
+        return {"faithfulness_checked":False,"faithfulness_triggered":False,
+                "faithfulness_gate_reason":"skipped:generation_error"}
+    if state.get("missing_type") in {"user_facts","both"} and state.get("action")==ResponseAction.CLARIFY:
+        return {"faithfulness_checked":False,"faithfulness_triggered":False,
+                "faithfulness_gate_reason":"skipped:pending_user_facts"}
+
     evidence = state.get("evidence", [])
     if not evidence:
         return {
@@ -491,10 +412,11 @@ async def faithfulness_node(
         gate_reason = "full_audit_enabled"
 
     t0 = time.perf_counter()
-    query = state.get("user_query", "")
+    query = _compose_retrieval_query(state.get("user_query", ""), state.get("conversation_history"))
     current_answer = state.get("final_answer", "")
     evidence_text = _format_evidence_for_prompt(evidence)
 
+    is_supported = None
     try:
         check_messages = [
             {"role": "system", "content": FAITHFULNESS_SYSTEM},
@@ -509,7 +431,7 @@ async def faithfulness_node(
         ]
         resp = await llm.generate(check_messages, temperature=0.0)
         data = json.loads(_clean_json_str(resp.content))
-        is_supported = _parse_bool(data.get("supported"), default=True)
+        is_supported = _parse_bool(data.get("supported"))
 
         if not is_supported:
             critique = data.get("rationale", "回答中存在未被证据支持的事实")
@@ -530,28 +452,59 @@ async def faithfulness_node(
             ]
             correct_resp = await llm.generate(correct_messages, temperature=0.0)
             correct_data = json.loads(_clean_json_str(correct_resp.content))
-            new_answer = str(correct_data.get("answer") or current_answer)
+            payload = _AnswerPayload.model_validate(correct_data)
+            corrected_answer, calculation_trace = resolve_calculations(payload.answer.strip(), payload.calculations, evidence)
+            if not corrected_answer:
+                raise ValueError("Empty correction answer")
+            action = ResponseAction(payload.action)
             updates: dict[str, Any] = {
-                "final_answer": new_answer,
+                "final_answer": corrected_answer,
+                "calculation_trace": calculation_trace,
+                "action": action,
+                "citations": _map_citations(list(dict.fromkeys(payload.citation_chunk_ids + [cid for calc in payload.calculations for cid in calc.evidence_chunk_ids])), evidence),
+                "missing_slots": payload.missing_slots if action == ResponseAction.CLARIFY else [],
+                "clarification_questions": payload.clarification_questions if action == ResponseAction.CLARIFY else [],
                 "faithfulness_checked": True,
                 "faithfulness_gate_reason": gate_reason,
                 "faithfulness_triggered": True,
                 "pre_correction_answer": current_answer,
-                "pre_correction_action": state.get("action"),
+                "pre_correction_action": state.get("action", ResponseAction.ANSWER),
                 "faithfulness_ms": round((time.perf_counter() - t0) * 1000, 2),
             }
-            if "citation_chunk_ids" in correct_data:
-                updates["citations"] = _map_citations(correct_data.get("citation_chunk_ids"), evidence)
-            raw_action = str(correct_data.get("action") or "").strip().lower()
-            if raw_action in {"answer", "clarify", "abstain"}:
-                updates["action"] = ResponseAction(raw_action)
-                if raw_action == "abstain":
-                    updates["exit_reason"] = ExitReason.ABSTAINED
-                elif raw_action == "clarify":
-                    updates["exit_reason"] = ExitReason.CLARIFICATION_NEEDED
+            if action == ResponseAction.ABSTAIN:
+                updates["exit_reason"] = ExitReason.ABSTAINED
+            elif action == ResponseAction.CLARIFY:
+                updates["exit_reason"] = ExitReason.CLARIFICATION_NEEDED
+            elif state.get("exit_reason") in {ExitReason.ABSTAINED, ExitReason.CLARIFICATION_NEEDED}:
+                if state.get("strategy") != RetrievalStrategy.MULTI:
+                    updates["exit_reason"] = ExitReason.SINGLE_HOP_DONE
+                else:
+                    updates["exit_reason"] = (
+                        ExitReason.SUFFICIENT_EVIDENCE
+                        if state.get("final_grade_status") == GradeStatus.SUFFICIENT
+                        else ExitReason.MAX_HOPS_REACHED
+                    )
             return updates
     except Exception as e:
-        logger.warning(f"Faithfulness check skipped due to error: {e}")
+        logger.warning(f"Faithfulness check/correction unavailable: {e}")
+        elapsed = round((time.perf_counter() - t0) * 1000, 2)
+        if is_supported is False:
+            return {
+                "final_answer": "当前回答未通过证据核验，且修正未完成，暂时无法给出可靠结论，请稍后重试。",
+                "calculation_trace": [],
+                "action": ResponseAction.ABSTAIN, "exit_reason": ExitReason.ABSTAINED,
+                "citations": [], "missing_slots": [], "clarification_questions": [],
+                "pre_correction_answer": current_answer,
+                "pre_correction_action": state.get("action", ResponseAction.ANSWER),
+                "faithfulness_checked": True, "faithfulness_triggered": True,
+                "faithfulness_gate_reason": f"{gate_reason}:correction_failed",
+                "faithfulness_ms": elapsed, "error": "self_correction_failed",
+            }
+        return {
+            "faithfulness_checked": False, "faithfulness_triggered": False,
+            "faithfulness_gate_reason": "unavailable:checker_error",
+            "faithfulness_ms": elapsed, "error": "faithfulness_unavailable",
+        }
 
     return {
         "faithfulness_checked": True,

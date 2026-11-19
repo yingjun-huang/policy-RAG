@@ -72,6 +72,7 @@ def build_graph(
         "retrieve_single",
         partial(
             retrieve_single_node,
+            llm=llm,
             retriever=retriever,
             reranker=reranker,
             top_k=top_k,

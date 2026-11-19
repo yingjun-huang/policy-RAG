@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from eval.judges import AnswerJudge
+from eval.judge_context import JUDGE_PROTOCOL_VERSION, build_judge_context, load_reference_corpus, reference_sha256
+from eval.judges.specialist_metrics import summarize_judgments
 from eval.metrics import (
     complete_evidence_at_k,
     hit_at_k,
@@ -461,9 +463,10 @@ async def run_behavioral_evaluation(
     judge_llm: LLMProvider | None = None,
     concurrency: int = 6,
     predictions_out: Path | None = None,
+    container: PolicyContainer | None = None,
 ) -> dict[str, Any]:
     """Runs end-to-end service checks (guardrails, judge, faithfulness, per-route latency & token usage)."""
-    container = PolicyContainer(settings=settings)
+    container = container or PolicyContainer(settings=settings)
     await container.init_vector_index()
     service = container.qa_service
     is_live = bool(live_llm and container.settings.llm_configured)
@@ -497,7 +500,12 @@ async def run_behavioral_evaluation(
         )
         judge_backend = "fake-judge"
 
+    reference_corpus = load_reference_corpus(settings.knowledge_dir)
     judge = AnswerJudge(active_judge_llm)
+    judge_status = "custom_judge" if judge_llm is not None else ("evaluated_live" if is_live else "offline_fake_llm")
+    benchmark_judgments: list[dict[str, Any]] = []
+    if predictions_out is not None and predictions_out.exists():
+        raise FileExistsError(f"Refusing to overwrite predictions: {predictions_out}")
 
     archived_set = {
         _doc_stem(c)
@@ -579,6 +587,7 @@ async def run_behavioral_evaluation(
             turns.append(ft)
 
         item_records: list[dict[str, Any]] = []
+        actual_history: list[dict[str, str]] = []
         async with sem:
             for turn_idx, turn in enumerate(turns):
                 with track_llm_usage() as turn_usage:
@@ -586,7 +595,8 @@ async def run_behavioral_evaluation(
                         ChatRequest(
                             message=turn["query"],
                             session_id=session_id,
-                            policy_context=item.get("policy_context"),
+                            history=actual_history,
+                            policy_context=turn.get("policy_context") or item.get("policy_context"),
                         )
                     )
 
@@ -597,6 +607,7 @@ async def run_behavioral_evaluation(
                 post_j = None
                 pre_j = None
                 gold_answer = str(turn.get("gold_answer") or "")
+                judge_context = build_judge_context(item, turn, actual_history, reference_corpus=reference_corpus)
                 if gold_answer.strip():
                     post_j = await judge.evaluate(
                         query=turn["query"],
@@ -604,6 +615,7 @@ async def run_behavioral_evaluation(
                         predicted_answer=resp.answer,
                         expected_action=expected_action,
                         predicted_action=pred_action,
+                        **judge_context,
                     )
                     if resp.faithfulness_triggered and resp.pre_correction_answer:
                         pre_j = await judge.evaluate(
@@ -611,7 +623,8 @@ async def run_behavioral_evaluation(
                             gold_answer=gold_answer,
                             predicted_answer=resp.pre_correction_answer,
                             expected_action=expected_action,
-                            predicted_action=pred_action,
+                            predicted_action=(resp.pre_correction_action.value if resp.pre_correction_action else pred_action),
+                            **judge_context,
                         )
 
                 item_records.append(
@@ -626,8 +639,13 @@ async def run_behavioral_evaluation(
                         "pred_action": pred_action,
                         "post_j": post_j,
                         "pre_j": pre_j,
+                        "judge_context": judge_context,
                     }
                 )
+                actual_history.extend([
+                    {"role": "user", "content": turn["query"]},
+                    {"role": "assistant", "content": resp.answer},
+                ])
 
         completed_items += 1
         if completed_items % 20 == 0 or completed_items == total_items:
@@ -709,6 +727,7 @@ async def run_behavioral_evaluation(
                     if route_name == exp_route:
                         rb["matched"] += 1
 
+            benchmark_judgments.append({"judgment": post_j})
             if post_j is not None:
                 judge_verdicts[post_j.verdict] += 1
                 judge_scores.append(post_j.score)
@@ -724,12 +743,21 @@ async def run_behavioral_evaluation(
                         "predicted_answer": resp.answer,
                         "route": route_name,
                         "faithfulness_checked": resp.faithfulness_checked,
+                        "response_error": resp.error,
+                        "latency_total_ms": resp.latency.total_ms,
+                        "faithfulness_gate_reason": resp.faithfulness_gate_reason,
+                        "pre_correction_action": resp.pre_correction_action.value if resp.pre_correction_action else None,
                         "faithfulness_triggered": resp.faithfulness_triggered,
                         "primary_judge_verdict": post_j.verdict,
                         "primary_judge_score": post_j.score,
+                        "primary_judge_parse_fallback": post_j.parse_fallback,
+                        "judge_protocol_version": JUDGE_PROTOCOL_VERSION,
+                        "judge_context": rec["judge_context"],
+                        "reference_annotation_sha256": reference_sha256(turn),
+                        "evaluation_scope": "benchmark",
                     }
                 )
-                if pre_j is not None:
+                if pre_j is not None and not pre_j.parse_fallback and not post_j.parse_fallback:
                     faith_pre_scores.append(pre_j.score)
                     faith_post_scores.append(post_j.score)
                     if pre_j.score > post_j.score:
@@ -737,122 +765,104 @@ async def run_behavioral_evaluation(
 
     guardrail_summary: dict[str, Any] = {"checked": 0}
     if guardrail_dataset:
-        async def _run_guardrail_item(item: dict[str, Any]) -> dict[str, Any]:
+        async def _run_guardrail_item(item: dict[str, Any]) -> list[dict[str, Any]]:
             cat = item.get("category")
+            if cat not in {"refuse", "abstain", "user_correction"}:
+                raise ValueError(f"Unsupported specialist category: {cat}")
+            recorded = []
+            history: list[dict[str, str]] = []
             async with sem:
-                if cat == "refuse":
-                    with track_llm_usage() as turn_usage:
-                        resp = await service.answer(
-                            ChatRequest(message=item["query"], policy_context=item.get("policy_context"))
-                        )
-                    return {"cat": cat, "turns": [(resp, turn_usage)], "item": item}
-                if cat == "abstain":
-                    with track_llm_usage() as turn_usage:
-                        resp = await service.answer(
-                            ChatRequest(message=item["query"], policy_context=item.get("policy_context"))
-                        )
-                    return {"cat": cat, "turns": [(resp, turn_usage)], "item": item}
-                if cat == "user_correction":
-                    sid = f"eval_corr_{item['id']}"
-                    recorded_turns: list[tuple[Any, dict[str, int], dict[str, Any] | None]] = []
-                    with track_llm_usage() as turn_usage0:
-                        resp0 = await service.answer(
-                            ChatRequest(
-                                message=item["query"],
-                                session_id=sid,
-                                policy_context=item.get("policy_context"),
-                            )
-                        )
-                    recorded_turns.append((resp0, turn_usage0, None))
-                    for ft in item.get("follow_up_turns", []):
-                        with track_llm_usage() as turn_usage_ft:
-                            resp1 = await service.answer(
-                                ChatRequest(
-                                    message=ft["query"],
-                                    session_id=sid,
-                                    policy_context=item.get("policy_context"),
-                                )
-                            )
-                        recorded_turns.append((resp1, turn_usage_ft, ft))
-                    return {"cat": cat, "turns": recorded_turns, "item": item}
-                return {"cat": cat, "turns": [], "item": item}
+                for index, turn in enumerate([item, *item.get("follow_up_turns", [])]):
+                    with track_llm_usage() as usage:
+                        resp = await service.answer(ChatRequest(
+                            message=turn["query"], session_id=f"eval_guard_{item['id']}",
+                            history=history,
+                            policy_context=turn.get("policy_context") or item.get("policy_context"),
+                        ))
+                    expected = str(turn.get("expected_action") or (cat if cat != "user_correction" else "answer"))
+                    context_turn = {**turn, "expected_action": expected}
+                    context = build_judge_context(item, context_turn, history, reference_corpus=reference_corpus)
+                    action = resp.action.value if hasattr(resp.action, "value") else str(resp.action)
+                    gold = str(turn.get("gold_answer") or "")
+                    judgment = await judge.evaluate(
+                        query=turn["query"], gold_answer=gold, predicted_answer=resp.answer,
+                        expected_action=expected, predicted_action=action, **context,
+                    ) if gold.strip() else None
+                    recorded.append({
+                        "item": item, "turn": context_turn, "turn_idx": index,
+                        "resp": resp, "usage": usage, "judgment": judgment,
+                        "judge_context": context, "pred_action": action,
+                    })
+                    history.extend([
+                        {"role": "user", "content": turn["query"]},
+                        {"role": "assistant", "content": resp.answer},
+                    ])
+            return recorded
 
         guard_records = await asyncio.gather(*[_run_guardrail_item(item) for item in guardrail_dataset])
+        by_category: dict[str, list[dict[str, Any]]] = {}
+        for item_records in guard_records:
+            for rec in item_records:
+                cat = rec["item"]["category"]
+                by_category.setdefault(cat, []).append(rec)
+                resp = rec["resp"]
+                route = resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy)
+                _record_route(route, resp, rec["usage"])
+                if cat == "refuse" and rec["turn_idx"] == 0:
+                    bucket = route_eval_stats.setdefault("refuse", {"total": 0, "matched": 0})
+                    bucket["total"] += 1
+                    bucket["matched"] += int(route == "refuse")
+                judgment = rec["judgment"]
+                if judgment is not None:
+                    turn = rec["turn"]
+                    prediction_rows.append({
+                        "id": rec["item"]["id"], "category": cat, "turn_idx": rec["turn_idx"],
+                        "query": turn["query"], "gold_answer": turn["gold_answer"],
+                        "expected_action": turn["expected_action"], "predicted_action": rec["pred_action"],
+                        "response_error": resp.error, "latency_total_ms": resp.latency.total_ms,
+                        "faithfulness_checked": resp.faithfulness_checked,
+                        "faithfulness_gate_reason": resp.faithfulness_gate_reason,
+                        "predicted_answer": resp.answer, "route": route,
+                        "primary_judge_verdict": judgment.verdict, "primary_judge_score": judgment.score,
+                        "primary_judge_parse_fallback": judgment.parse_fallback,
+                        "judge_protocol_version": JUDGE_PROTOCOL_VERSION,
+                        "judge_context": rec["judge_context"],
+                        "reference_annotation_sha256": reference_sha256(turn),
+                        "evaluation_scope": "guardrail",
+                    })
 
-        refuse_ok = 0
-        refuse_n = 0
-        corr_ok = 0
-        corr_n = 0
-        abstain_empty_or_scoped = 0
-        abstain_action_ok = 0
-        abstain_n = 0
-        for rec in guard_records:
-            cat = rec["cat"]
-            if cat == "refuse":
-                refuse_n += 1
-                resp, turn_usage = rec["turns"][0]
-                r_strat = resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy)
-                _record_route(r_strat, resp, turn_usage)
-                rb = route_eval_stats.setdefault("refuse", {"total": 0, "matched": 0})
-                rb["total"] += 1
-                if r_strat == "refuse":
-                    rb["matched"] += 1
-                if resp.refused and resp.action == ResponseAction.REFUSE:
-                    refuse_ok += 1
-            elif cat == "abstain":
-                abstain_n += 1
-                resp, turn_usage = rec["turns"][0]
-                _record_route(
-                    resp.strategy.value if hasattr(resp.strategy, "value") else str(resp.strategy),
-                    resp,
-                    turn_usage,
-                )
-                if resp.action == ResponseAction.ABSTAIN:
-                    abstain_action_ok += 1
-                if resp.action == ResponseAction.ABSTAIN or not is_live:
-                    if "return_policy_00" not in {c.chunk_id for c in resp.evidence}:
-                        abstain_empty_or_scoped += 1
-            elif cat == "user_correction":
-                corr_n += 1
-                resp0, turn_usage0, _ = rec["turns"][0]
-                _record_route(
-                    resp0.strategy.value if hasattr(resp0.strategy, "value") else str(resp0.strategy),
-                    resp0,
-                    turn_usage0,
-                )
-                for resp1, turn_usage_ft, ft in rec["turns"][1:]:
-                    _record_route(
-                        resp1.strategy.value if hasattr(resp1.strategy, "value") else str(resp1.strategy),
-                        resp1,
-                        turn_usage_ft,
-                    )
-                    stems1 = set(_unique_stems(resp1.evidence))
-                    g1 = set((ft or {}).get("gold_doc_ids") or [])
-                    if g1.issubset(stems1):
-                        corr_ok += 1
-
-        tp = refuse_ok + abstain_empty_or_scoped
-        fp = false_refusals
-        fn = (refuse_n - refuse_ok) + (abstain_n - abstain_empty_or_scoped)
-        precision_ra = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall_ra = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1_ra = (2 * precision_ra * recall_ra / (precision_ra + recall_ra) * 100) if (precision_ra + recall_ra) > 0 else 0.0
-
+        refuse_records = by_category.get("refuse", [])
+        abstain_records = by_category.get("abstain", [])
+        corrections = [r for r in by_category.get("user_correction", []) if r["turn_idx"] > 0]
+        refuse_ok = sum(r["resp"].refused and r["pred_action"] == "refuse" for r in refuse_records)
+        abstain_ok = sum(r["pred_action"] == "abstain" for r in abstain_records)
+        corr_ok = sum(
+            bool(r["turn"].get("gold_doc_ids"))
+            and set(r["turn"]["gold_doc_ids"]).issubset(set(_unique_stems(r["resp"].evidence)))
+            for r in corrections
+        )
+        no_fake = sum("return_policy_00" not in {c.chunk_id for c in r["resp"].evidence} for r in abstain_records)
+        semantic = {cat: summarize_judgments(records, judge_status) for cat, records in by_category.items()}
         guardrail_summary = {
             "checked": len(guardrail_dataset),
-            "refuse_accuracy": round(refuse_ok / refuse_n * 100, 2) if refuse_n else None,
-            "refuse_passed": refuse_ok,
-            "refuse_total": refuse_n,
-            "user_correction_retrieval_accuracy": round(corr_ok / corr_n * 100, 2) if corr_n else None,
-            "user_correction_passed": corr_ok,
-            "user_correction_total": corr_n,
-            "abstain_no_fake_fallback_rate": round(abstain_empty_or_scoped / abstain_n * 100, 2) if abstain_n else None,
-            "abstain_action_accuracy": round(abstain_action_ok / abstain_n * 100, 2) if abstain_n else None,
-            "abstain_action_passed": abstain_action_ok,
-            "abstain_total": abstain_n,
-            "refusal_abstain_f1": round(f1_ra, 2),
+            "refuse_accuracy": round(refuse_ok / len(refuse_records) * 100, 2) if refuse_records else None,
+            "refuse_passed": refuse_ok, "refuse_total": len(refuse_records),
+            "user_correction_retrieval_accuracy": round(corr_ok / len(corrections) * 100, 2) if corrections else None,
+            "user_correction_passed": corr_ok, "user_correction_total": len(corrections),
+            "abstain_no_fake_fallback_rate": round(no_fake / len(abstain_records) * 100, 2) if abstain_records else None,
+            "abstain_action_accuracy": round(abstain_ok / len(abstain_records) * 100, 2) if abstain_records else None,
+            "abstain_action_passed": abstain_ok, "abstain_total": len(abstain_records),
+            "allowed_action_metrics": {
+                cat: {
+                    "evaluated": len(records),
+                    "matched": sum(r["pred_action"] in r["judge_context"]["allowed_actions"] for r in records),
+                    "accuracy": round(sum(r["pred_action"] in r["judge_context"]["allowed_actions"] for r in records) / len(records) * 100, 2),
+                } for cat, records in by_category.items()
+            },
+            "answer_correctness_by_category": semantic,
+            "abstain_llm_judgment_status": semantic.get("abstain", {}).get("status", "not_evaluated"),
             "false_refusals_on_benchmark": false_refusals,
-            "abstain_llm_judgment_status": "evaluated_live" if is_live else "offline_fake_llm",
+            "metric_note": "No-fake checks chunk identity only; content correctness and action accuracy are separate. Historical refusal_abstain_f1 retired because it treated evidence presence as semantic correctness.",
         }
 
     by_route_summary: dict[str, Any] = {}
@@ -886,10 +896,8 @@ async def run_behavioral_evaluation(
 
     if predictions_out is not None and prediction_rows:
         predictions_out.parent.mkdir(parents=True, exist_ok=True)
-        predictions_out.write_text(
-            "\n".join(json.dumps(r, ensure_ascii=False) for r in prediction_rows) + "\n",
-            encoding="utf-8",
-        )
+        with predictions_out.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write("\n".join(json.dumps(r, ensure_ascii=False) for r in prediction_rows) + "\n")
 
     route_eval_total = sum(v["total"] for v in route_eval_stats.values())
     route_eval_matched = sum(v["matched"] for v in route_eval_stats.values())
@@ -926,14 +934,8 @@ async def run_behavioral_evaluation(
             },
             "predicted_distribution_pct": predicted_dist_pct,
         },
-        "answer_correctness": {
-            "evaluated": judge_n,
-            "correct": judge_verdicts["correct"],
-            "partial": judge_verdicts["partial"],
-            "incorrect": judge_verdicts["incorrect"],
-            "strict_accuracy": round(judge_verdicts["correct"] / judge_n * 100, 2) if judge_n else None,
-            "weighted_accuracy": round(sum(judge_scores) / judge_n * 100, 2) if judge_n else None,
-        },
+        "answer_correctness": summarize_judgments(benchmark_judgments, judge_status),
+        "judge_protocol_version": JUDGE_PROTOCOL_VERSION,
         "clarification_metrics": {
             "expected_total": clarify_expected,
             "predicted_total": clarify_predicted,
@@ -1000,6 +1002,8 @@ def print_report_table(summary: dict[str, dict[str, Any]], dataset_size: int) ->
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Policy RAG Offline & E2E Evaluation Runner")
+    parser.add_argument("--skip-guardrails", action="store_true", help="Evaluate only the selected benchmark or boundary challenge set")
+    parser.add_argument("--reports-dir", type=Path, default=REPORTS_DIR, help="Directory for a new report and predictions; historical files are never overwritten")
     parser.add_argument("--dataset", type=str, default=str(DATASET_PATH), help="Path to jsonl evaluation dataset")
     parser.add_argument(
         "--guardrail-dataset",
@@ -1014,6 +1018,8 @@ async def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Limit number of evaluation items per dataset")
     parser.add_argument("--save-report", action="store_true", default=True, help="Save evaluation report to json")
     args = parser.parse_args()
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    reports_dir = args.reports_dir
 
     dataset_path = Path(args.dataset)
     dataset = load_dataset(dataset_path)
@@ -1046,7 +1052,7 @@ async def main() -> None:
     behavioral: dict[str, Any] | None = None
     if args.mode in {"e2e", "all"}:
         guard_path = Path(args.guardrail_dataset)
-        guard_data = load_dataset(guard_path) if guard_path.exists() and dataset_path.name != "rag_eval.jsonl" else None
+        guard_data = load_dataset(guard_path) if guard_path.exists() and dataset_path.name != "rag_eval.jsonl" and not args.skip_guardrails else None
         if guard_data is not None and args.limit is not None:
             guard_data = guard_data[: args.limit]
         is_live = bool(args.live_llm and settings.llm_configured)
@@ -1062,7 +1068,7 @@ async def main() -> None:
             "Starting E2E pipeline behavioral & guardrail evaluation (concurrency=%d)...",
             args.concurrency,
         )
-        pred_path = REPORTS_DIR / "predictions_latest.jsonl" if (is_live and args.save_report and args.limit is None) else None
+        pred_path = reports_dir / f"predictions_{timestamp}.jsonl" if (is_live and args.save_report) else None
         behavioral = await run_behavioral_evaluation(
             e2e_settings,
             dataset,
@@ -1074,19 +1080,23 @@ async def main() -> None:
         print("E2E Behavioral Summary:", json.dumps(behavioral, ensure_ascii=False, indent=2))
 
     if args.save_report:
-        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        report_file = REPORTS_DIR / f"report_{timestamp}.json"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        report_file = reports_dir / f"report_{timestamp}.json"
         report_data = {
             "timestamp": timestamp,
             "dataset": str(dataset_path),
             "dataset_sha256": file_sha256(dataset_path),
             "dataset_size": len(dataset),
+            "judge_protocol_version": JUDGE_PROTOCOL_VERSION,
+            "guardrail_dataset": str(guard_path) if behavioral is not None and guard_data is not None else None,
+            "guardrail_dataset_sha256": file_sha256(guard_path) if behavioral is not None and guard_data is not None else None,
+            "predictions_file": str(pred_path) if behavioral is not None and pred_path is not None else None,
             "pipeline_metadata": meta,
             "summary": summary,
             "behavioral": behavioral,
         }
-        report_file.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        with report_file.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(report_data, indent=2, ensure_ascii=False))
         logger.info(f"Saved evaluation report to {report_file}")
 
 

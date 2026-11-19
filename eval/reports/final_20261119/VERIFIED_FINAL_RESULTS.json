@@ -1,0 +1,16 @@
+{
+  "status": "verified",
+  "scenarios": 189,
+  "turns": 240,
+  "unique_predictions": 240,
+  "answers_match_saved_checkpoints": true,
+  "all_primary_verdicts_valid": true,
+  "source_changed": [],
+  "routing_denominator": 132,
+  "calculation_denominator": 47,
+  "strict_accuracy": 85.42,
+  "weighted_accuracy": 86.46,
+  "cross_model": null,
+  "report": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\report_20261119_053743_398780.json",
+  "report_sha256": "0e3dd8e1059cc43f08af4a718cd500d3b7d5ce2d78514b4f78d982e619e58067"
+}

@@ -1,0 +1,52 @@
+{
+  "judge_protocol_version": 3,
+  "cross_judge_model": "deepseek-reasoner",
+  "primary_rejudge_model": null,
+  "attempted_turns": 240,
+  "evaluated_turns": 240,
+  "parse_fallback_count": 0,
+  "primary_evaluated_turns": 240,
+  "primary_parse_fallback_count": 0,
+  "primary_unknown_parse_status_count": 0,
+  "comparable_pair_count": 240,
+  "primary_comparison_context_aligned": true,
+  "comparison_note": "Agreement uses only valid grades with the same context and annotation protocol. Historical primary grades without matching provenance are excluded; use --primary-model to rejudge both models.",
+  "primary_weighted_accuracy": 86.46,
+  "cross_weighted_accuracy": 82.5,
+  "cross_strict_accuracy": 78.75,
+  "exact_verdict_agreement_pct": 91.25,
+  "within_half_score_agreement_pct": 100.0,
+  "by_scope": {
+    "final": {
+      "attempted": 240,
+      "evaluated": 240,
+      "weighted_accuracy": 82.5
+    }
+  },
+  "primary_llm_usage": null,
+  "status": "complete",
+  "completed_at_utc": "2026-11-19T11:23:15.351120+00:00",
+  "scenarios": 189,
+  "turns": 240,
+  "verdict_counts": {
+    "correct": 189,
+    "partial": 18,
+    "incorrect": 33
+  },
+  "exact_verdict_agreement_count": 219,
+  "predictions_file": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\reports\\final_20261119\\predictions_20261119_053743_398780.jsonl",
+  "reference_dataset": "D:\\PythonProject\\Application\\policy-rag-github\\eval\\dataset\\jd_eval_final.jsonl",
+  "source_changed": [],
+  "predictions_sha256": "2fc4c1a294f7479007253fd0a551d7f16784e36f316314823b259179b7325fa7",
+  "reference_dataset_sha256": "737e5fee4cdfdf5c4d61af0e2dc0a6a4223fc33edbe621032fe197a169205e16",
+  "primary_report_sha256": "0e3dd8e1059cc43f08af4a718cd500d3b7d5ce2d78514b4f78d982e619e58067",
+  "frozen_identity_sha256": "b491da87805f7c343bf3a1319a556252efaa67255c53b1e3311e0b8f57f7c4dc",
+  "recorded_returned_calls": 240,
+  "recorded_usage": {
+    "prompt_tokens": 3355025,
+    "completion_tokens": 93108,
+    "total_tokens": 3448133
+  },
+  "recorded_usage_note": "All saved returned responses for this supplemental run, including invalid JSON retries; not supplier billing. llm_usage separately describes this process invocation.",
+  "context_storage": "Full identical context stays in frozen predictions; per-result context hashes below verify the match."
+}

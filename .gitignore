@@ -1,58 +1,44 @@
-# Python & Virtual Environments
+# Python / local environment
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
 .venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+venv/
+env/
 *.egg-info/
-.installed.cfg
-*.egg
-
-# Secrets & Environment variables
+build/
+dist/
+# Credentials
 .env
 *.local.env
-
-# Cache & Hugging Face / Models
+# Models / runtime
 .cache/
 hf_cache/
 models/
-*.pth
-*.pt
-*.bin
 *.onnx
-
-# Testing & Coverage
+*.pt
+*.pth
+*.bin
+*.sqlite
+*.sqlite-*
+qdrant_storage/
+# Tests / editor
 .pytest_cache/
 .coverage
 htmlcov/
-
-# IDE & OS
 .idea/
 .vscode/
-*.swp
-*.swo
-*~
 .DS_Store
 Thumbs.db
-
-# Evaluation reports & scratch
-eval/reports/*.json
-eval/reports/*.jsonl
-qdrant_storage/
 scratch/
+# New experiments ignored; reviewed evidence explicitly included
+eval/reports/*
+!eval/reports/RESULTS.md
+!eval/reports/metrics.json
+!eval/reports/final_20261119/
+eval/reports/final_20261119/*
+!eval/reports/final_20261119/*.md
+!eval/reports/final_20261119/*.json
+!eval/reports/final_20261119/cross_deepseek_reasoner_20261119/
+eval/reports/final_20261119/cross_deepseek_reasoner_20261119/*
+!eval/reports/final_20261119/cross_deepseek_reasoner_20261119/*.md
+!eval/reports/final_20261119/cross_deepseek_reasoner_20261119/*.json
